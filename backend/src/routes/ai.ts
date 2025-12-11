@@ -137,11 +137,14 @@ router.get('/posts', isAuthenticated, async (req, res) => {
     // Transform the data to match the expected format
     const formattedPosts = posts.map(post => ({
       ...post,
+      product_id: post.productId,  // Add snake_case version for frontend
       product_title: post.product.title,
       product_image: post.product.imageUrl,
       price: post.product.price,
       description: post.product.description,
-      media_url: post.mediaUrl  // Ensure media_url is included
+      media_url: post.mediaUrl,  // Ensure media_url is included
+      shared_to_facebook: post.sharedToFacebook,
+      shared_to_instagram: post.sharedToInstagram
     }));
 
     res.json({ posts: formattedPosts });
@@ -158,6 +161,7 @@ router.get('/posts', isAuthenticated, async (req, res) => {
         const product = userProducts.find((p: any) => p.id === post.productId);
         return {
           ...post,
+          product_id: post.productId,  // Add snake_case version for frontend
           product_title: product?.title || 'Unknown Product',
           product_image: product?.imageUrl || '',
           price: product?.price || 0,

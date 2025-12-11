@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
-import { Facebook, Instagram, ExternalLink, Copy, CheckCircle, Play, X } from 'lucide-react';
+import { Facebook, Instagram, ExternalLink, Copy, CheckCircle, Play, X, ChevronDown, ChevronUp, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface GeneratedPost {
@@ -18,12 +18,61 @@ interface GeneratedPost {
   price: number;
 }
 
+interface ProductGroup {
+  product_id: string;
+  product_title: string;
+  product_image: string;
+  price: number;
+  posts: GeneratedPost[];
+}
+
 const GeneratedPostsPage = () => {
   const [posts, setPosts] = useState<GeneratedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState<string | null>(null);
   const [checkoutUrls, setCheckoutUrls] = useState<{ [key: string]: string }>({});
   const [viewingVideo, setViewingVideo] = useState<string | null>(null);
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+
+  // Group posts by product
+  const productGroups = useMemo(() => {
+    const groups: Map<string, ProductGroup> = new Map();
+    
+    posts.forEach(post => {
+      if (!groups.has(post.product_id)) {
+        groups.set(post.product_id, {
+          product_id: post.product_id,
+          product_title: post.product_title,
+          product_image: post.product_image,
+          price: post.price,
+          posts: []
+        });
+      }
+      groups.get(post.product_id)!.posts.push(post);
+    });
+    
+    return Array.from(groups.values());
+  }, [posts]);
+
+  const toggleProductExpanded = (productId: string) => {
+    setExpandedProducts(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedProducts(new Set(productGroups.map(g => g.product_id)));
+  };
+
+  const collapseAll = () => {
+    setExpandedProducts(new Set());
+  };
 
   // Helper to check if a video URL is valid and accessible
   const isValidVideoUrl = (url: string | null | undefined): boolean => {
@@ -120,131 +169,200 @@ const GeneratedPostsPage = () => {
             <p className="text-gray-600">No posts generated yet. Generate posts from the Products page.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {posts.map((post) => (
-              <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                <div className="p-6">
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="relative">
+          <>
+            {/* Expand/Collapse All */}
+            <div className="flex justify-end gap-2 mb-4">
+              <button
+                onClick={expandAll}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Expand All
+              </button>
+              <button
+                onClick={collapseAll}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Collapse All
+              </button>
+            </div>
+
+            {/* Product Groups */}
+            <div className="space-y-4">
+              {productGroups.map((group) => {
+                const isExpanded = expandedProducts.has(group.product_id);
+                return (
+                  <div key={group.product_id} className="bg-white rounded-lg shadow-md overflow-hidden">
+                    {/* Product Header */}
+                    <button
+                      onClick={() => toggleProductExpanded(group.product_id)}
+                      className="w-full flex items-center gap-4 p-4 hover:bg-gray-50 transition-colors"
+                    >
                       <img
-                        src={post.product_image}
-                        alt={post.product_title}
-                        className="w-24 h-24 object-cover rounded-lg"
+                        src={group.product_image}
+                        alt={group.product_title}
+                        className="w-16 h-16 object-cover rounded-lg"
                       />
-                      {post.type === 'video' && isValidVideoUrl(post.media_url) && (
-                        <button
-                          onClick={() => setViewingVideo(post.media_url)}
-                          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded-lg hover:bg-opacity-70 transition-all"
-                          title="Play video"
-                        >
-                          <Play className="h-8 w-8 text-white" fill="white" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{post.product_title}</h3>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm text-gray-500">
-                          {post.type === 'post' ? 'Social Post' : 'Video Post'}
-                        </p>
-                        {post.type === 'video' && isValidVideoUrl(post.media_url) && (
-                          <button
-                            onClick={() => setViewingVideo(post.media_url)}
-                            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                          >
-                            View Video
-                          </button>
-                        )}
-                        {post.type === 'video' && !isValidVideoUrl(post.media_url) && (
-                          <span className="text-xs text-gray-400 italic">
-                            (Video not available)
+                      <div className="flex-1 text-left">
+                        <h3 className="text-lg font-semibold text-gray-900">{group.product_title}</h3>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-lg font-bold text-blue-600">${group.price}</span>
+                          <span className="text-sm text-gray-500 flex items-center gap-1">
+                            <Package className="h-4 w-4" />
+                            {group.posts.length} {group.posts.length === 1 ? 'post' : 'posts'}
                           </span>
-                        )}
+                        </div>
                       </div>
-                      <p className="text-lg font-bold text-blue-600 mt-1">${post.price}</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{post.content}</p>
-                  </div>
-
-                  {/* Share Buttons */}
-                  <div className="flex gap-2 mb-4">
-                    <button
-                      onClick={() => handleShare(post.id, 'facebook')}
-                      disabled={sharing === post.id || post.shared_to_facebook}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                      {post.shared_to_facebook ? (
-                        <>
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Shared to Facebook
-                        </>
+                      {isExpanded ? (
+                        <ChevronUp className="h-5 w-5 text-gray-400" />
                       ) : (
-                        <>
-                          <Facebook className="h-4 w-4 mr-2" />
-                          Share to Facebook
-                        </>
+                        <ChevronDown className="h-5 w-5 text-gray-400" />
                       )}
                     </button>
-                    <button
-                      onClick={() => handleShare(post.id, 'instagram')}
-                      disabled={sharing === post.id || post.shared_to_instagram}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md hover:from-purple-700 hover:to-pink-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                      {post.shared_to_instagram ? (
-                        <>
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Shared to Instagram
-                        </>
-                      ) : (
-                        <>
-                          <Instagram className="h-4 w-4 mr-2" />
-                          Share to Instagram
-                        </>
-                      )}
-                    </button>
-                  </div>
 
-                  {/* Checkout URL */}
-                  <div className="border-t pt-4">
-                    {checkoutUrls[post.id] ? (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={checkoutUrls[post.id]}
-                          readOnly
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm"
-                        />
-                        <button
-                          onClick={() => handleCopyUrl(checkoutUrls[post.id])}
-                          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
-                        <a
-                          href={checkoutUrls[post.id]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
+                    {/* Posts for this product */}
+                    {isExpanded && (
+                      <div className="border-t">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+                          {group.posts.map((post) => (
+                            <div key={post.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                              {/* Media Preview */}
+                              <div className="relative aspect-video bg-gray-100">
+                                {post.type === 'video' && isValidVideoUrl(post.media_url) ? (
+                                  <>
+                                    <video
+                                      src={post.media_url}
+                                      className="w-full h-full object-cover"
+                                      muted
+                                      preload="metadata"
+                                    />
+                                    <button
+                                      onClick={() => setViewingVideo(post.media_url)}
+                                      className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center hover:bg-opacity-50 transition-all group"
+                                    >
+                                      <div className="w-14 h-14 rounded-full bg-white bg-opacity-90 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <Play className="h-7 w-7 text-gray-800 ml-1" fill="currentColor" />
+                                      </div>
+                                    </button>
+                                    <span className="absolute top-2 left-2 px-2 py-1 bg-black bg-opacity-70 text-white text-xs font-medium rounded">
+                                      Video
+                                    </span>
+                                  </>
+                                ) : post.type === 'video' ? (
+                                  <>
+                                    <img
+                                      src={post.product_image}
+                                      alt={post.product_title}
+                                      className="w-full h-full object-cover opacity-50"
+                                    />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <span className="px-3 py-1.5 bg-gray-800 bg-opacity-70 text-white text-sm rounded">
+                                        Video not available
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <img
+                                      src={post.product_image}
+                                      alt={post.product_title}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute top-2 left-2 px-2 py-1 bg-black bg-opacity-70 text-white text-xs font-medium rounded">
+                                      Image
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Post Content */}
+                              <div className="p-4">
+                                <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{post.content}</p>
+                                </div>
+
+                              {/* Share Buttons */}
+                              <div className="flex gap-2 mb-3">
+                                <button
+                                  onClick={() => handleShare(post.id, 'facebook')}
+                                  disabled={sharing === post.id || post.shared_to_facebook}
+                                  className="flex-1 flex items-center justify-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                >
+                                  {post.shared_to_facebook ? (
+                                    <>
+                                      <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                                      Shared
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Facebook className="h-3.5 w-3.5 mr-1.5" />
+                                      Facebook
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleShare(post.id, 'instagram')}
+                                  disabled={sharing === post.id || post.shared_to_instagram}
+                                  className="flex-1 flex items-center justify-center px-3 py-1.5 text-sm bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-md hover:from-purple-700 hover:to-pink-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                >
+                                  {post.shared_to_instagram ? (
+                                    <>
+                                      <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                                      Shared
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Instagram className="h-3.5 w-3.5 mr-1.5" />
+                                      Instagram
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+
+                              {/* Checkout URL */}
+                              <div className="border-t pt-3">
+                                {checkoutUrls[post.id] ? (
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      value={checkoutUrls[post.id]}
+                                      readOnly
+                                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md bg-gray-50 text-xs"
+                                    />
+                                    <button
+                                      onClick={() => handleCopyUrl(checkoutUrls[post.id])}
+                                      className="px-2 py-1.5 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                                    >
+                                      <Copy className="h-3.5 w-3.5" />
+                                    </button>
+                                    <a
+                                      href={checkoutUrls[post.id]}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700"
+                                    >
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handleGenerateCheckout(post.product_id, post.id)}
+                                    className="w-full px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+                                  >
+                                    Generate Checkout URL
+                                  </button>
+                                )}
+                              </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => handleGenerateCheckout(post.product_id, post.id)}
-                        className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-                      >
-                        Generate Checkout URL
-                      </button>
                     )}
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
