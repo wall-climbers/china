@@ -1,11 +1,9 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma';
+import { inMemoryUsers } from '../lib/inMemoryStorage';
 
 const router = express.Router();
-
-// In-memory user store (fallback when database is unavailable)
-const inMemoryUsers = new Map();
 
 // Helper to handle database errors gracefully
 async function safePrismaQuery<T>(query: () => Promise<T>, fallback: T): Promise<T> {

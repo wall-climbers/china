@@ -1,6 +1,7 @@
 import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { inMemoryUserCatalogs, inMemoryProducts } from '../lib/inMemoryStorage';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.post('/connect', isAuthenticated, async (req, res) => {
   }
 
   try {
-    // Update user with catalog connection
+    // Try to update in database
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -36,9 +37,24 @@ router.post('/connect', isAuthenticated, async (req, res) => {
     });
 
     res.json({ message: 'Catalog connected successfully', catalogId });
-  } catch (error) {
-    console.error('Error connecting catalog:', error);
-    res.status(500).json({ error: 'Failed to connect catalog' });
+  } catch (error: any) {
+    // If database unavailable, use in-memory storage
+    if (error.code === 'P1001' || error.code === 'P2021') {
+      console.log('⚠️  Database unavailable, storing catalog connection in memory');
+      inMemoryUserCatalogs.set(user.id, {
+        catalogConnected: true,
+        catalogId
+      });
+      
+      // Update the user object in session
+      user.catalogConnected = true;
+      user.catalogId = catalogId;
+      
+      res.json({ message: 'Catalog connected successfully', catalogId });
+    } else {
+      console.error('Error connecting catalog:', error);
+      res.status(500).json({ error: 'Failed to connect catalog' });
+    }
   }
 });
 
@@ -90,22 +106,51 @@ router.post('/sync', isAuthenticated, async (req, res) => {
       }
     ];
 
-    // Insert products into database
-    const syncedProducts = await prisma.$transaction(
-      mockProducts.map(product =>
-        prisma.product.create({
-          data: {
-            userId: user.id,
-            sku: product.sku,
-            title: product.title,
-            description: product.description,
-            price: product.price,
-            imageUrl: product.imageUrl,
-            catalogId: user.catalogId
-          }
-        })
-      )
-    );
+    // Try to insert products into database
+    let syncedProducts;
+    try {
+      syncedProducts = await prisma.$transaction(
+        mockProducts.map(product =>
+          prisma.product.create({
+            data: {
+              userId: user.id,
+              sku: product.sku,
+              title: product.title,
+              description: product.description,
+              price: product.price,
+              imageUrl: product.imageUrl,
+              catalogId: user.catalogId
+            }
+          })
+        )
+      );
+    } catch (dbError: any) {
+      // If database unavailable, use in-memory storage
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        console.log('⚠️  Database unavailable, storing products in memory');
+        
+        syncedProducts = mockProducts.map((product, index) => ({
+          id: `product_${Date.now()}_${index}`,
+          userId: user.id,
+          sku: product.sku,
+          title: product.title,
+          description: product.description,
+          price: product.price,
+          imageUrl: product.imageUrl,
+          catalogId: user.catalogId,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }));
+        
+        // Store in memory
+        if (!inMemoryProducts.has(user.id)) {
+          inMemoryProducts.set(user.id, []);
+        }
+        inMemoryProducts.set(user.id, syncedProducts);
+      } else {
+        throw dbError;
+      }
+    }
 
     res.json({
       message: 'Products synced successfully',
@@ -138,7 +183,7 @@ router.post('/disconnect', isAuthenticated, async (req, res) => {
   }
 
   try {
-    // Update user to disconnect catalog
+    // Try to update in database
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -148,9 +193,21 @@ router.post('/disconnect', isAuthenticated, async (req, res) => {
     });
 
     res.json({ message: 'Catalog disconnected successfully' });
-  } catch (error) {
-    console.error('Error disconnecting catalog:', error);
-    res.status(500).json({ error: 'Failed to disconnect catalog' });
+  } catch (error: any) {
+    // If database unavailable, use in-memory storage
+    if (error.code === 'P1001' || error.code === 'P2021') {
+      console.log('⚠️  Database unavailable, removing catalog connection from memory');
+      inMemoryUserCatalogs.delete(user.id);
+      
+      // Update the user object in session
+      user.catalogConnected = false;
+      user.catalogId = null;
+      
+      res.json({ message: 'Catalog disconnected successfully' });
+    } else {
+      console.error('Error disconnecting catalog:', error);
+      res.status(500).json({ error: 'Failed to disconnect catalog' });
+    }
   }
 });
 

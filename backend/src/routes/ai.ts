@@ -2,6 +2,7 @@ import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
 import { generateAndUploadVideo } from '../services/s3';
+import { inMemoryProducts, inMemoryPosts } from '../lib/inMemoryStorage';
 
 const router = express.Router();
 
@@ -15,13 +16,24 @@ router.post('/generate', isAuthenticated, async (req, res) => {
   }
 
   try {
-    // Get product
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        userId: user.id
+    // Get product (with fallback to in-memory)
+    let product = null;
+    try {
+      product = await prisma.product.findFirst({
+        where: {
+          id: productId,
+          userId: user.id
+        }
+      });
+    } catch (dbError: any) {
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        console.log('⚠️  Database unavailable, fetching product from memory');
+        const userProducts = inMemoryProducts.get(user.id) || [];
+        product = userProducts.find((p: any) => p.id === productId);
+      } else {
+        throw dbError;
       }
-    });
+    }
 
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
@@ -51,16 +63,46 @@ router.post('/generate', isAuthenticated, async (req, res) => {
 
     const aiResult = await mockAIService(product, type);
 
-    // Save generated post
-    const generatedPost = await prisma.generatedPost.create({
-      data: {
-        userId: user.id,
-        productId,
-        type,
-        content: aiResult.content,
-        mediaUrl: aiResult.mediaUrl
+    // Save generated post (with fallback to in-memory)
+    let generatedPost;
+    try {
+      generatedPost = await prisma.generatedPost.create({
+        data: {
+          userId: user.id,
+          productId,
+          type,
+          content: aiResult.content,
+          mediaUrl: aiResult.mediaUrl
+        }
+      });
+    } catch (dbError: any) {
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        console.log('⚠️  Database unavailable, storing post in memory');
+        
+        generatedPost = {
+          id: `post_${Date.now()}`,
+          userId: user.id,
+          productId,
+          type,
+          content: aiResult.content,
+          mediaUrl: aiResult.mediaUrl,
+          status: 'draft',
+          sharedToFacebook: false,
+          sharedToInstagram: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        // Store in memory
+        if (!inMemoryPosts.has(user.id)) {
+          inMemoryPosts.set(user.id, []);
+        }
+        const userPosts = inMemoryPosts.get(user.id);
+        userPosts.push(generatedPost);
+      } else {
+        throw dbError;
       }
-    });
+    }
 
     res.json({
       message: 'AI content generated successfully',

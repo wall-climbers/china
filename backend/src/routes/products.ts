@@ -1,6 +1,7 @@
 import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { inMemoryProducts } from '../lib/inMemoryStorage';
 
 const router = express.Router();
 
@@ -15,9 +16,16 @@ router.get('/', isAuthenticated, async (req, res) => {
     });
 
     res.json({ products });
-  } catch (error) {
-    console.error('Error fetching products:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
+  } catch (error: any) {
+    // If database unavailable, use in-memory storage
+    if (error.code === 'P1001' || error.code === 'P2021') {
+      console.log('⚠️  Database unavailable, fetching products from memory');
+      const products = inMemoryProducts.get(user.id) || [];
+      res.json({ products });
+    } else {
+      console.error('Error fetching products:', error);
+      res.status(500).json({ error: 'Failed to fetch products' });
+    }
   }
 });
 
