@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
-import { Facebook, Instagram, ExternalLink, Copy, CheckCircle, Play, X, ChevronDown, ChevronUp, Package } from 'lucide-react';
+import { Facebook, Instagram, ExternalLink, Copy, CheckCircle, Play, X, ChevronDown, ChevronUp, Package, Pencil, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface GeneratedPost {
@@ -33,6 +33,9 @@ const GeneratedPostsPage = () => {
   const [checkoutUrls, setCheckoutUrls] = useState<{ [key: string]: string }>({});
   const [viewingVideo, setViewingVideo] = useState<string | null>(null);
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+  const [editingPost, setEditingPost] = useState<GeneratedPost | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // Group posts by product
   const productGroups = useMemo(() => {
@@ -144,6 +147,53 @@ const GeneratedPostsPage = () => {
   const handleCopyUrl = (url: string) => {
     navigator.clipboard.writeText(url);
     toast.success('Checkout URL copied to clipboard!');
+  };
+
+  const handleEditPost = (post: GeneratedPost) => {
+    setEditingPost(post);
+    setEditContent(post.content);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPost) return;
+    
+    setSaving(true);
+    const loadingToast = toast.loading('Saving changes...');
+    try {
+      await axios.put(`/api/ai/posts/${editingPost.id}`, { content: editContent }, { withCredentials: true });
+      toast.success('Post updated successfully!', { id: loadingToast });
+      
+      // Update local state
+      setPosts(posts.map(p => 
+        p.id === editingPost.id ? { ...p, content: editContent } : p
+      ));
+      
+      setEditingPost(null);
+      setEditContent('');
+    } catch (error) {
+      console.error('Error updating post:', error);
+      toast.error('Failed to update post', { id: loadingToast });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    if (!confirm('Are you sure you want to delete this post? This action cannot be undone.')) {
+      return;
+    }
+    
+    const loadingToast = toast.loading('Deleting post...');
+    try {
+      await axios.delete(`/api/ai/posts/${postId}`, { withCredentials: true });
+      toast.success('Post deleted successfully!', { id: loadingToast });
+      
+      // Update local state
+      setPosts(posts.filter(p => p.id !== postId));
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      toast.error('Failed to delete post', { id: loadingToast });
+    }
   };
 
   if (loading) {
@@ -276,6 +326,24 @@ const GeneratedPostsPage = () => {
 
                               {/* Post Content */}
                               <div className="p-4">
+                                {/* Edit/Delete Buttons */}
+                                <div className="flex justify-end gap-1 mb-2">
+                                  <button
+                                    onClick={() => handleEditPost(post)}
+                                    className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                    title="Edit post"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePost(post.id)}
+                                    className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="Delete post"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+
                                 <div className="bg-gray-50 rounded-lg p-3 mb-3">
                                   <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{post.content}</p>
                                 </div>
@@ -416,6 +484,89 @@ const GeneratedPostsPage = () => {
                 >
                   <Copy className="h-4 w-4" />
                   Copy URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Post Modal */}
+      {editingPost && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setEditingPost(null)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Post</h3>
+              <button
+                onClick={() => setEditingPost(null)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              {/* Product Info */}
+              <div className="flex items-center gap-3 mb-4 pb-4 border-b">
+                <img
+                  src={editingPost.product_image}
+                  alt={editingPost.product_title}
+                  className="w-12 h-12 object-cover rounded-lg"
+                />
+                <div>
+                  <h4 className="font-medium text-gray-900">{editingPost.product_title}</h4>
+                  <p className="text-sm text-gray-500">
+                    {editingPost.type === 'video' ? 'Video Post' : 'Social Post'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Media Preview */}
+              {editingPost.type === 'video' && isValidVideoUrl(editingPost.media_url) && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Video Preview</label>
+                  <video
+                    src={editingPost.media_url}
+                    controls
+                    className="w-full rounded-lg max-h-48 object-contain bg-black"
+                  />
+                </div>
+              )}
+
+              {/* Content Editor */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Post Content</label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  rows={8}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  placeholder="Enter your post content..."
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {editContent.length} characters
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setEditingPost(null)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={saving || editContent.trim() === ''}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>
