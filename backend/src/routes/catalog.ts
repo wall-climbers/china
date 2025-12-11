@@ -36,6 +36,10 @@ router.post('/connect', isAuthenticated, async (req, res) => {
       }
     });
 
+    // Update the user object in session
+    user.catalogConnected = true;
+    user.catalogId = catalogId;
+
     res.json({ message: 'Catalog connected successfully', catalogId });
   } catch (error: any) {
     // If database unavailable, use in-memory storage
@@ -223,6 +227,10 @@ router.post('/disconnect', isAuthenticated, async (req, res) => {
         catalogId: null
       }
     });
+
+    // Update the user object in session
+    user.catalogConnected = false;
+    user.catalogId = null;
 
     res.json({ message: 'Catalog disconnected successfully' });
   } catch (error: any) {

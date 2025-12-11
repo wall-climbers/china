@@ -67,7 +67,7 @@ const DashboardPage = () => {
     try {
       await axios.post('/api/catalog/connect', { catalogId }, { withCredentials: true });
       await refreshUser();
-      fetchCatalogStatus();
+      await fetchCatalogStatus();
       toast.success('Catalog connected successfully!', { id: loadingToast });
     } catch (error) {
       console.error('Error connecting catalog:', error);
@@ -99,7 +99,7 @@ const DashboardPage = () => {
     try {
       await axios.post('/api/catalog/disconnect', {}, { withCredentials: true });
       await refreshUser();
-      fetchCatalogStatus();
+      await fetchCatalogStatus();
       toast.success('Catalog disconnected successfully!', { id: loadingToast });
     } catch (error) {
       console.error('Error disconnecting catalog:', error);
