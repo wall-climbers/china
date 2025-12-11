@@ -5,8 +5,8 @@ interface User {
   id: string;
   email: string;
   name: string;
-  profile_picture: string;
-  catalog_connected: boolean;
+  profilePicture: string;
+  catalogConnected: boolean;
 }
 
 interface AuthContextType {

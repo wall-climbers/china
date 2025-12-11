@@ -1,7 +1,7 @@
 import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
-import db from '../database';
-import { v4 as uuidv4 } from 'uuid';
+import prisma from '../lib/prisma';
+import { generateAndUploadVideo } from '../services/s3';
 
 const router = express.Router();
 
@@ -14,44 +14,53 @@ router.post('/generate', isAuthenticated, async (req, res) => {
     return res.status(400).json({ error: 'Product ID and type are required' });
   }
 
-  // Get product
-  const product: any = db.prepare('SELECT * FROM products WHERE id = ? AND user_id = ?')
-    .get(productId, user.id);
-
-  if (!product) {
-    return res.status(404).json({ error: 'Product not found' });
-  }
-
-  // Mock AI generation - in production, this would call an external AI service
-  const mockAIService = async (product: any, type: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    if (type === 'post') {
-      return {
-        content: `🌟 Check out our ${product.title}! 🌟\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Limited time offer - Shop now!\n\n#shopping #deals #${product.title.toLowerCase().replace(/\s+/g, '')}`,
-        mediaUrl: product.image_url
-      };
-    } else {
-      // For video, we'll mock a video URL
-      return {
-        content: `Discover the amazing ${product.title}! Watch our video to learn more. Get yours today for only $${product.price}!`,
-        mediaUrl: `https://example.com/videos/${product.id}.mp4` // Mock video URL
-      };
-    }
-  };
-
   try {
+    // Get product
+    const product = await prisma.product.findFirst({
+      where: {
+        id: productId,
+        userId: user.id
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Mock AI generation - in production, this would call an external AI service
+    const mockAIService = async (product: any, type: string) => {
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      if (type === 'post') {
+        return {
+          content: `🌟 Check out our ${product.title}! 🌟\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Limited time offer - Shop now!\n\n#shopping #deals #${product.title.toLowerCase().replace(/\s+/g, '')}`,
+          mediaUrl: product.imageUrl
+        };
+      } else {
+        // Generate mock video and upload to S3
+        console.log('🎥 Generating mock video for:', product.title);
+        const videoUrl = await generateAndUploadVideo(product);
+        
+        return {
+          content: `🎬 Watch this amazing video about our ${product.title}! 🎬\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Get yours today!\n\n#video #product #${product.title.toLowerCase().replace(/\s+/g, '')}`,
+          mediaUrl: videoUrl
+        };
+      }
+    };
+
     const aiResult = await mockAIService(product, type);
 
     // Save generated post
-    const postId = uuidv4();
-    db.prepare(`
-      INSERT INTO generated_posts (id, user_id, product_id, type, content, media_url)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(postId, user.id, productId, type, aiResult.content, aiResult.mediaUrl);
-
-    const generatedPost = db.prepare('SELECT * FROM generated_posts WHERE id = ?').get(postId);
+    const generatedPost = await prisma.generatedPost.create({
+      data: {
+        userId: user.id,
+        productId,
+        type,
+        content: aiResult.content,
+        mediaUrl: aiResult.mediaUrl
+      }
+    });
 
     res.json({
       message: 'AI content generated successfully',
@@ -64,41 +73,86 @@ router.post('/generate', isAuthenticated, async (req, res) => {
 });
 
 // Get all generated posts for user
-router.get('/posts', isAuthenticated, (req, res) => {
+router.get('/posts', isAuthenticated, async (req, res) => {
   const user = req.user as any;
 
-  const posts = db.prepare(`
-    SELECT gp.*, p.title as product_title, p.image_url as product_image, p.price, p.description
-    FROM generated_posts gp
-    JOIN products p ON gp.product_id = p.id
-    WHERE gp.user_id = ?
-    ORDER BY gp.created_at DESC
-  `).all(user.id);
+  try {
+    const posts = await prisma.generatedPost.findMany({
+      where: { userId: user.id },
+      include: {
+        product: {
+          select: {
+            title: true,
+            imageUrl: true,
+            price: true,
+            description: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
-  res.json({ posts });
+    // Transform the data to match the expected format
+    const formattedPosts = posts.map(post => ({
+      ...post,
+      product_title: post.product.title,
+      product_image: post.product.imageUrl,
+      price: post.product.price,
+      description: post.product.description
+    }));
+
+    res.json({ posts: formattedPosts });
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    res.status(500).json({ error: 'Failed to fetch posts' });
+  }
 });
 
 // Get a single generated post
-router.get('/posts/:id', isAuthenticated, (req, res) => {
+router.get('/posts/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
-  const post = db.prepare(`
-    SELECT gp.*, p.title as product_title, p.image_url as product_image, p.price, p.description
-    FROM generated_posts gp
-    JOIN products p ON gp.product_id = p.id
-    WHERE gp.id = ? AND gp.user_id = ?
-  `).get(id, user.id);
+  try {
+    const post = await prisma.generatedPost.findFirst({
+      where: {
+        id,
+        userId: user.id
+      },
+      include: {
+        product: {
+          select: {
+            title: true,
+            imageUrl: true,
+            price: true,
+            description: true
+          }
+        }
+      }
+    });
 
-  if (!post) {
-    return res.status(404).json({ error: 'Post not found' });
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Transform the data to match the expected format
+    const formattedPost = {
+      ...post,
+      product_title: post.product.title,
+      product_image: post.product.imageUrl,
+      price: post.product.price,
+      description: post.product.description
+    };
+
+    res.json({ post: formattedPost });
+  } catch (error) {
+    console.error('Error fetching post:', error);
+    res.status(500).json({ error: 'Failed to fetch post' });
   }
-
-  res.json({ post });
 });
 
 // Update a generated post
-router.put('/posts/:id', isAuthenticated, (req, res) => {
+router.put('/posts/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const { content } = req.body;
   const user = req.user as any;
@@ -107,32 +161,48 @@ router.put('/posts/:id', isAuthenticated, (req, res) => {
     return res.status(400).json({ error: 'Content is required' });
   }
 
-  const result = db.prepare('UPDATE generated_posts SET content = ? WHERE id = ? AND user_id = ?')
-    .run(content, id, user.id);
+  try {
+    const updatedPost = await prisma.generatedPost.updateMany({
+      where: {
+        id,
+        userId: user.id
+      },
+      data: { content }
+    });
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Post not found' });
+    if (updatedPost.count === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const post = await prisma.generatedPost.findUnique({
+      where: { id }
+    });
+
+    res.json({ message: 'Post updated successfully', post });
+  } catch (error) {
+    console.error('Error updating post:', error);
+    res.status(500).json({ error: 'Failed to update post' });
   }
-
-  const updatedPost = db.prepare('SELECT * FROM generated_posts WHERE id = ?').get(id);
-
-  res.json({ message: 'Post updated successfully', post: updatedPost });
 });
 
 // Delete a generated post
-router.delete('/posts/:id', isAuthenticated, (req, res) => {
+router.delete('/posts/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
-  const result = db.prepare('DELETE FROM generated_posts WHERE id = ? AND user_id = ?')
-    .run(id, user.id);
+  try {
+    await prisma.generatedPost.deleteMany({
+      where: {
+        id,
+        userId: user.id
+      }
+    });
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Post not found' });
+    res.json({ message: 'Post deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting post:', error);
+    res.status(404).json({ error: 'Post not found' });
   }
-
-  res.json({ message: 'Post deleted successfully' });
 });
 
 export default router;
-

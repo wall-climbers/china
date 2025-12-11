@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
 import { Facebook, Instagram, ExternalLink, Copy, CheckCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface GeneratedPost {
   id: string;
@@ -40,31 +41,34 @@ const GeneratedPostsPage = () => {
 
   const handleShare = async (postId: string, platform: 'facebook' | 'instagram') => {
     setSharing(postId);
+    const loadingToast = toast.loading(`Sharing to ${platform}...`);
     try {
       await axios.post(`/api/social/share/${platform}`, { postId }, { withCredentials: true });
-      alert(`Successfully shared to ${platform}!`);
+      toast.success(`Successfully shared to ${platform}!`, { id: loadingToast });
       fetchPosts();
     } catch (error) {
       console.error(`Error sharing to ${platform}:`, error);
-      alert(`Failed to share to ${platform}`);
+      toast.error(`Failed to share to ${platform}`, { id: loadingToast });
     } finally {
       setSharing(null);
     }
   };
 
   const handleGenerateCheckout = async (productId: string, postId: string) => {
+    const loadingToast = toast.loading('Generating checkout URL...');
     try {
       const response = await axios.post('/checkout/create', { productId }, { withCredentials: true });
       setCheckoutUrls({ ...checkoutUrls, [postId]: response.data.checkoutUrl });
+      toast.success('Checkout URL generated!', { id: loadingToast });
     } catch (error) {
       console.error('Error generating checkout URL:', error);
-      alert('Failed to generate checkout URL');
+      toast.error('Failed to generate checkout URL', { id: loadingToast });
     }
   };
 
   const handleCopyUrl = (url: string) => {
     navigator.clipboard.writeText(url);
-    alert('Checkout URL copied to clipboard!');
+    toast.success('Checkout URL copied to clipboard!');
   };
 
   if (loading) {

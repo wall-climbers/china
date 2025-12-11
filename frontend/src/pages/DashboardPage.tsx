@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
 import { Link, Package, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface CatalogProvider {
   id: string;
@@ -62,26 +63,28 @@ const DashboardPage = () => {
   };
 
   const handleConnectCatalog = async (catalogId: string) => {
+    const loadingToast = toast.loading('Connecting to catalog...');
     try {
       await axios.post('/api/catalog/connect', { catalogId }, { withCredentials: true });
       await refreshUser();
       fetchCatalogStatus();
-      alert('Catalog connected successfully!');
+      toast.success('Catalog connected successfully!', { id: loadingToast });
     } catch (error) {
       console.error('Error connecting catalog:', error);
-      alert('Failed to connect catalog');
+      toast.error('Failed to connect catalog', { id: loadingToast });
     }
   };
 
   const handleSyncProducts = async () => {
     setSyncing(true);
+    const loadingToast = toast.loading('Syncing products...');
     try {
       const response = await axios.post('/api/catalog/sync', {}, { withCredentials: true });
-      alert(`Successfully synced ${response.data.count} products!`);
+      toast.success(`Successfully synced ${response.data.count} products!`, { id: loadingToast });
       fetchStats();
     } catch (error) {
       console.error('Error syncing products:', error);
-      alert('Failed to sync products');
+      toast.error('Failed to sync products', { id: loadingToast });
     } finally {
       setSyncing(false);
     }
@@ -92,14 +95,15 @@ const DashboardPage = () => {
       return;
     }
 
+    const loadingToast = toast.loading('Disconnecting catalog...');
     try {
       await axios.post('/api/catalog/disconnect', {}, { withCredentials: true });
       await refreshUser();
       fetchCatalogStatus();
-      alert('Catalog disconnected successfully!');
+      toast.success('Catalog disconnected successfully!', { id: loadingToast });
     } catch (error) {
       console.error('Error disconnecting catalog:', error);
-      alert('Failed to disconnect catalog');
+      toast.error('Failed to disconnect catalog', { id: loadingToast });
     }
   };
 

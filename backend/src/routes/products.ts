@@ -1,48 +1,68 @@
 import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
-import db from '../database';
+import prisma from '../lib/prisma';
 
 const router = express.Router();
 
 // Get all products for the authenticated user
-router.get('/', isAuthenticated, (req, res) => {
+router.get('/', isAuthenticated, async (req, res) => {
   const user = req.user as any;
 
-  const products = db.prepare('SELECT * FROM products WHERE user_id = ? ORDER BY created_at DESC')
-    .all(user.id);
+  try {
+    const products = await prisma.product.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' }
+    });
 
-  res.json({ products });
+    res.json({ products });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
 });
 
 // Get a single product
-router.get('/:id', isAuthenticated, (req, res) => {
+router.get('/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
-  const product = db.prepare('SELECT * FROM products WHERE id = ? AND user_id = ?')
-    .get(id, user.id);
+  try {
+    const product = await prisma.product.findFirst({
+      where: {
+        id,
+        userId: user.id
+      }
+    });
 
-  if (!product) {
-    return res.status(404).json({ error: 'Product not found' });
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    res.json({ product });
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ error: 'Failed to fetch product' });
   }
-
-  res.json({ product });
 });
 
 // Delete a product
-router.delete('/:id', isAuthenticated, (req, res) => {
+router.delete('/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
-  const result = db.prepare('DELETE FROM products WHERE id = ? AND user_id = ?')
-    .run(id, user.id);
+  try {
+    await prisma.product.delete({
+      where: {
+        id,
+        userId: user.id
+      }
+    });
 
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Product not found' });
+    res.json({ message: 'Product deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting product:', error);
+    res.status(404).json({ error: 'Product not found' });
   }
-
-  res.json({ message: 'Product deleted successfully' });
 });
 
 export default router;
-

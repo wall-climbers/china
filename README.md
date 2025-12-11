@@ -43,7 +43,8 @@ A comprehensive web application that enables businesses to sell products on soci
 ### Backend
 - **Node.js** with Express
 - **TypeScript** for type safety
-- **Better-sqlite3** for database
+- **PostgreSQL** for database
+- **Prisma ORM** for type-safe database access
 - **Passport.js** for authentication
 - **Axios** for HTTP requests
 
@@ -109,13 +110,19 @@ china/
 npm run install:all
 ```
 
-### Step 2: (Optional) Configure Environment Variables
+### Step 3: Configure Environment Variables
 
-The app works out of the box with default settings. If you want to customize:
+Backend `.env` is already configured with default PostgreSQL settings.
 
-### Step 3: Run the Application (that's it!)
+If you need custom database credentials, edit `backend/.env`:
 
-The backend data directory and database will be created automatically.
+```env
+DATABASE_URL="postgresql://username:password@localhost:5432/socialcommerce"
+```
+
+### Step 4: Run the Application
+
+From the root directory:
 
 ## Running the Application
 

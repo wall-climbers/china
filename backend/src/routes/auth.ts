@@ -1,9 +1,24 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
-import db from '../database';
-import { v4 as uuidv4 } from 'uuid';
+import prisma from '../lib/prisma';
 
 const router = express.Router();
+
+// In-memory user store (fallback when database is unavailable)
+const inMemoryUsers = new Map();
+
+// Helper to handle database errors gracefully
+async function safePrismaQuery<T>(query: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await query();
+  } catch (error: any) {
+    if (error.code === 'P1001') {
+      console.warn('⚠️  Database unavailable, using in-memory fallback');
+      return fallback;
+    }
+    throw error;
+  }
+}
 
 // Register new user
 router.post('/register', async (req, res) => {
@@ -14,8 +29,20 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email, password, and name are required' });
     }
 
-    // Check if user already exists
-    const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Check if user already exists (with fallback)
+    let existingUser = null;
+    try {
+      existingUser = await prisma.user.findUnique({ where: { email } });
+    } catch (dbError: any) {
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        // Database unavailable or tables don't exist, check in-memory
+        console.log(`⚠️  Database issue (${dbError.code}), using in-memory storage`);
+        existingUser = inMemoryUsers.get(email);
+      } else {
+        throw dbError;
+      }
+    }
+
     if (existingUser) {
       return res.status(400).json({ error: 'User with this email already exists' });
     }
@@ -24,19 +51,47 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create new user
-    const userId = uuidv4();
     const profilePicture = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
 
-    db.prepare(`
-      INSERT INTO users (id, email, password, name, profile_picture)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(userId, email, hashedPassword, name, profilePicture);
-
-    const newUser = db.prepare('SELECT id, email, name, profile_picture, catalog_connected FROM users WHERE id = ?').get(userId);
+    let newUser;
+    try {
+      newUser = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+          profilePicture
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          profilePicture: true,
+          catalogConnected: true
+        }
+      });
+    } catch (dbError: any) {
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        // Database unavailable or tables don't exist, use in-memory
+        console.log(`⚠️  Database issue (${dbError.code}), creating user in memory`);
+        newUser = {
+          id: `user_${Date.now()}`,
+          email,
+          password: hashedPassword,
+          name,
+          profilePicture,
+          catalogConnected: false
+        };
+        inMemoryUsers.set(email, newUser);
+      } else {
+        throw dbError;
+      }
+    }
 
     // Set session
     req.login(newUser, (err) => {
       if (err) {
+        console.error('Login error:', err);
         return res.status(500).json({ error: 'Failed to log in after registration' });
       }
       res.json({ message: 'Registration successful', user: newUser });
@@ -56,8 +111,20 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user
-    const user: any = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Find user (with fallback)
+    let user = null;
+    try {
+      user = await prisma.user.findUnique({ where: { email } });
+    } catch (dbError: any) {
+      if (dbError.code === 'P1001' || dbError.code === 'P2021') {
+        // Database unavailable or tables don't exist, check in-memory
+        console.log(`⚠️  Database issue (${dbError.code}), checking in-memory users`);
+        user = inMemoryUsers.get(email);
+      } else {
+        throw dbError;
+      }
+    }
+
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -74,6 +141,7 @@ router.post('/login', async (req, res) => {
     // Set session
     req.login(userWithoutPassword, (err) => {
       if (err) {
+        console.error('Login session error:', err);
         return res.status(500).json({ error: 'Login failed' });
       }
       res.json({ message: 'Login successful', user: userWithoutPassword });

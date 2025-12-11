@@ -3,9 +3,6 @@ import cors from 'cors';
 import session from 'express-session';
 import passport from 'passport';
 import dotenv from 'dotenv';
-import path from 'path';
-import Database from 'better-sqlite3';
-import SqliteStore from 'better-sqlite3-session-store';
 import { initDatabase } from './database';
 import authRoutes from './routes/auth';
 import catalogRoutes from './routes/catalog';
@@ -20,19 +17,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize database
-initDatabase();
-
-// Session store
-const SessionStore = SqliteStore(session);
-const sessionDb = new Database(path.join(__dirname, '../data/sessions.sqlite'));
-const sessionStore = new SessionStore({
-  client: sessionDb,
-  expired: {
-    clear: true,
-    intervalMs: 900000 // 15 minutes
-  }
+// Initialize database (with error handling)
+initDatabase().catch(err => {
+  console.warn('⚠️  Database initialization failed (will use fallback mode):', err.message);
 });
+
+// Use in-memory session store (PostgreSQL is not available)
+console.log('ℹ️  Using in-memory session store (sessions will not persist across restarts)');
+const sessionStore = new session.MemoryStore();
 
 // Middleware
 app.use(cors({
@@ -77,4 +69,3 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
-

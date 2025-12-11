@@ -1,0 +1,86 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  password          String
+  name              String?
+  profilePicture    String?  @map("profile_picture")
+  catalogConnected  Boolean  @default(false) @map("catalog_connected")
+  catalogId         String?  @map("catalog_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  products          Product[]
+  generatedPosts    GeneratedPost[]
+
+  @@map("users")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  sku         String
+  title       String
+  description String
+  price       Float
+  imageUrl    String   @map("image_url")
+  catalogId   String?  @map("catalog_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generatedPosts  GeneratedPost[]
+  checkoutSessions CheckoutSession[]
+
+  @@map("products")
+}
+
+model GeneratedPost {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  productId       String   @map("product_id")
+  type            String
+  content         String
+  mediaUrl        String   @map("media_url")
+  status          String   @default("draft")
+  sharedToFacebook Boolean @default(false) @map("shared_to_facebook")
+  sharedToInstagram Boolean @default(false) @map("shared_to_instagram")
+  facebookPostId  String?  @map("facebook_post_id")
+  instagramPostId String?  @map("instagram_post_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("generated_posts")
+}
+
+model CheckoutSession {
+  id          String   @id @default(uuid())
+  productId   String   @map("product_id")
+  checkoutUrl String   @map("checkout_url")
+  status      String   @default("pending")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("checkout_sessions")
+}
+
+model Session {
+  sid    String   @id
+  sess   Json
+  expire DateTime
+
+  @@index([expire])
+  @@map("session")
+}

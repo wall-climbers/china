@@ -42,7 +42,7 @@ const Navbar = () => {
             {user && (
               <div className="flex items-center space-x-3 ml-4 pl-4 border-l">
                 <img
-                  src={user.profile_picture}
+                  src={user.profilePicture}
                   alt={user.name}
                   className="h-8 w-8 rounded-full"
                 />

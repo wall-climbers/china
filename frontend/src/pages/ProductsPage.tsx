@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
 import { Sparkles, Loader, X, Save, FileText, Video } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface Product {
   id: string;
@@ -9,7 +10,7 @@ interface Product {
   title: string;
   description: string;
   price: number;
-  image_url: string;
+  imageUrl: string;
 }
 
 interface GeneratedPost {
@@ -68,15 +69,16 @@ const ProductsPage = () => {
 
   const handleGeneratePost = async (productId: string, type: 'post' | 'video') => {
     setGenerating(productId);
+    const loadingToast = toast.loading(`Generating ${type === 'post' ? 'post' : 'video'}...`);
     try {
       await axios.post('/api/ai/generate', { productId, type }, { withCredentials: true });
-      alert(`${type === 'post' ? 'Post' : 'Video'} generated successfully!`);
+      toast.success(`${type === 'post' ? 'Post' : 'Video'} generated successfully!`, { id: loadingToast });
       if (selectedProduct?.id === productId) {
         fetchProductPosts(productId);
       }
     } catch (error) {
       console.error('Error generating content:', error);
-      alert('Failed to generate content');
+      toast.error('Failed to generate content', { id: loadingToast });
     } finally {
       setGenerating(null);
     }
@@ -117,10 +119,10 @@ const ProductsPage = () => {
       );
       
       setEditingPost(null);
-      alert('Post updated successfully!');
+      toast.success('Post updated successfully!');
     } catch (error) {
       console.error('Error updating post:', error);
-      alert('Failed to update post');
+      toast.error('Failed to update post');
     } finally {
       setSaving(false);
     }
@@ -132,10 +134,10 @@ const ProductsPage = () => {
     try {
       await axios.delete(`/api/ai/posts/${postId}`, { withCredentials: true });
       setProductPosts(posts => posts.filter(post => post.id !== postId));
-      alert('Post deleted successfully!');
+      toast.success('Post deleted successfully!');
     } catch (error) {
       console.error('Error deleting post:', error);
-      alert('Failed to delete post');
+      toast.error('Failed to delete post');
     }
   };
 
@@ -172,7 +174,7 @@ const ProductsPage = () => {
                 }`}
               >
                 <img
-                  src={product.image_url}
+                  src={product.imageUrl}
                   alt={product.title}
                   className="w-full h-48 object-cover"
                 />
@@ -234,7 +236,7 @@ const ProductsPage = () => {
             {/* Product Info */}
             <div className="mb-6 pb-6 border-b">
               <img
-                src={selectedProduct.image_url}
+                src={selectedProduct.imageUrl}
                 alt={selectedProduct.title}
                 className="w-full h-48 object-cover rounded-lg mb-4"
               />

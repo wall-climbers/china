@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { ShoppingBag, CheckCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface CheckoutSession {
   id: string;
@@ -9,7 +10,7 @@ interface CheckoutSession {
   title: string;
   description: string;
   price: number;
-  image_url: string;
+  image_url: string; // Backend formats this for compatibility
   sku: string;
 }
 
@@ -49,9 +50,10 @@ const CheckoutPage = () => {
     try {
       await axios.post(`/checkout/${sessionId}/complete`, { customerInfo });
       setCompleted(true);
+      toast.success('Payment completed successfully!');
     } catch (error) {
       console.error('Error completing checkout:', error);
-      alert('Payment failed. Please try again.');
+      toast.error('Payment failed. Please try again.');
     } finally {
       setProcessing(false);
     }
