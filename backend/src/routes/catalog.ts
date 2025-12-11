@@ -106,13 +106,26 @@ router.post('/sync', isAuthenticated, async (req, res) => {
       }
     ];
 
-    // Try to insert products into database
+    // Try to upsert products into database (update if same title exists, otherwise create)
     let syncedProducts;
     try {
       syncedProducts = await prisma.$transaction(
         mockProducts.map(product =>
-          prisma.product.create({
-            data: {
+          prisma.product.upsert({
+            where: {
+              userId_title: {
+                userId: user.id,
+                title: product.title
+              }
+            } as any,
+            update: {
+              sku: product.sku,
+              description: product.description,
+              price: product.price,
+              imageUrl: product.imageUrl,
+              catalogId: user.catalogId
+            },
+            create: {
               userId: user.id,
               sku: product.sku,
               title: product.title,
@@ -129,23 +142,42 @@ router.post('/sync', isAuthenticated, async (req, res) => {
       if (dbError.code === 'P1001' || dbError.code === 'P2021') {
         console.log('⚠️  Database unavailable, storing products in memory');
         
-        syncedProducts = mockProducts.map((product, index) => ({
-          id: `product_${Date.now()}_${index}`,
-          userId: user.id,
-          sku: product.sku,
-          title: product.title,
-          description: product.description,
-          price: product.price,
-          imageUrl: product.imageUrl,
-          catalogId: user.catalogId,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }));
+        // Get existing products for this user
+        const existingProducts = inMemoryProducts.get(user.id) || [];
         
-        // Store in memory
-        if (!inMemoryProducts.has(user.id)) {
-          inMemoryProducts.set(user.id, []);
-        }
+        syncedProducts = mockProducts.map((product, index) => {
+          // Check if product with same title already exists
+          const existingProduct = existingProducts.find((p: any) => p.title === product.title);
+          
+          if (existingProduct) {
+            // Update existing product
+            return {
+              ...existingProduct,
+              sku: product.sku,
+              description: product.description,
+              price: product.price,
+              imageUrl: product.imageUrl,
+              catalogId: user.catalogId,
+              updatedAt: new Date()
+            };
+          } else {
+            // Create new product
+            return {
+              id: `product_${Date.now()}_${index}`,
+              userId: user.id,
+              sku: product.sku,
+              title: product.title,
+              description: product.description,
+              price: product.price,
+              imageUrl: product.imageUrl,
+              catalogId: user.catalogId,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+        });
+        
+        // Store in memory (replace with updated list)
         inMemoryProducts.set(user.id, syncedProducts);
       } else {
         throw dbError;

@@ -41,6 +41,7 @@ model Product {
   generatedPosts  GeneratedPost[]
   checkoutSessions CheckoutSession[]
 
+  @@unique([userId, title], name: "userId_title")
   @@map("products")
 }
 
