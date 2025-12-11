@@ -1,5 +1,16 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Buffer } from 'buffer';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+import { promisify } from 'util';
+import { writeFile, unlink, readFile } from 'fs/promises';
+import path from 'path';
+import os from 'os';
+
+// Set ffmpeg path
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'us-east-1',
@@ -12,22 +23,82 @@ const s3Client = new S3Client({
 const S3_BUCKET = process.env.AWS_S3_BUCKET || 'socialcommerce-videos';
 
 export const generateMockVideo = async (product: any): Promise<Buffer> => {
-  // Create a mock video file (MP4 header + minimal data)
-  // This is a minimal valid MP4 file structure
-  const mp4Header = Buffer.from([
-    0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, // ftyp box
-    0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x02, 0x00,
-    0x69, 0x73, 0x6F, 0x6D, 0x69, 0x73, 0x6F, 0x32,
-    0x6D, 0x70, 0x34, 0x31, 0x00, 0x00, 0x00, 0x08
-  ]);
+  // Generate a real 5-second video with color and sound
+  const tempVideoPath = path.join(os.tmpdir(), `temp-video-${Date.now()}.mp4`);
+  
+  // Colors to cycle through
+  const colors = ['blue', 'green', 'red', 'purple', 'orange'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  
+  // Frequencies for different tones (musical notes)
+  const frequencies = [440, 523, 587, 659, 698]; // A, C, D, E, F notes
+  const frequency = frequencies[Math.floor(Math.random() * frequencies.length)];
 
-  // Add some mock video data
-  const mockVideoData = Buffer.concat([
-    mp4Header,
-    Buffer.alloc(1024 * 100, 0xFF) // 100KB of mock video data
-  ]);
+  // Sanitize text to prevent FFmpeg filter syntax errors
+  const sanitizeText = (text: string) => {
+    return text
+      .replace(/'/g, "\\'")  // Escape single quotes
+      .replace(/:/g, '\\:')  // Escape colons
+      .replace(/\\/g, '\\\\') // Escape backslashes
+      .replace(/\[/g, '\\[')  // Escape brackets
+      .replace(/\]/g, '\\]');
+  };
 
-  return mockVideoData;
+  const safeTitle = sanitizeText(product.title || 'Product');
+  const safePrice = sanitizeText(`$${product.price || '0'}`);
+
+  return new Promise((resolve, reject) => {
+    // Set timeout to prevent hanging
+    const timeout = setTimeout(() => {
+      reject(new Error('Video generation timed out after 15 seconds'));
+    }, 15000);
+
+    ffmpeg()
+      // Generate video: colored background
+      .input(`color=${color}:s=1280x720:d=5`)
+      .inputFormat('lavfi')
+      // Generate audio: sine wave tone
+      .input(`sine=frequency=${frequency}:duration=5`)
+      .inputFormat('lavfi')
+      // Add text overlays using videoFilter
+      .videoFilter([
+        `drawtext=text='${safeTitle}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2-50:shadowcolor=black:shadowx=2:shadowy=2`,
+        `drawtext=text='${safePrice}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2+50:shadowcolor=black:shadowx=2:shadowy=2`
+      ])
+      .outputOptions([
+        '-c:v libx264',
+        '-preset ultrafast',
+        '-pix_fmt yuv420p',
+        '-c:a aac',
+        '-b:a 128k',
+        '-shortest',
+        '-map 0:v',  // Map video from first input
+        '-map 1:a'   // Map audio from second input
+      ])
+      .duration(5)
+      .output(tempVideoPath)
+      .on('end', async () => {
+        clearTimeout(timeout);
+        try {
+          // Read the generated video file
+          const videoBuffer = await readFile(tempVideoPath);
+          // Clean up temp file
+          await unlink(tempVideoPath).catch(() => {});
+          console.log(`✅ Video generated successfully: ${videoBuffer.length} bytes`);
+          resolve(videoBuffer);
+        } catch (error) {
+          reject(error);
+        }
+      })
+      .on('error', (err) => {
+        clearTimeout(timeout);
+        console.error('FFmpeg error:', err.message);
+        // Clean up temp file on error
+        unlink(tempVideoPath).catch(() => {});
+        reject(err);
+      })
+      .run();
+  });
 };
 
 export const uploadVideoToS3 = async (
@@ -41,8 +112,8 @@ export const uploadVideoToS3 = async (
       Bucket: S3_BUCKET,
       Key: key,
       Body: videoBuffer,
-      ContentType: 'video/mp4',
-      ACL: 'public-read'
+      ContentType: 'video/mp4'
+      // ACL removed - bucket doesn't support ACLs (use bucket policy instead)
     });
 
     await s3Client.send(command);

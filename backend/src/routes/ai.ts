@@ -140,13 +140,39 @@ router.get('/posts', isAuthenticated, async (req, res) => {
       product_title: post.product.title,
       product_image: post.product.imageUrl,
       price: post.product.price,
-      description: post.product.description
+      description: post.product.description,
+      media_url: post.mediaUrl  // Ensure media_url is included
     }));
 
     res.json({ posts: formattedPosts });
-  } catch (error) {
-    console.error('Error fetching posts:', error);
-    res.status(500).json({ error: 'Failed to fetch posts' });
+  } catch (error: any) {
+    // If database unavailable, use in-memory storage
+    if (error.code === 'P1001' || error.code === 'P2021') {
+      console.log('⚠️  Database unavailable, fetching posts from memory');
+      const userPosts = inMemoryPosts.get(user.id) || [];
+      
+      // Get product details from in-memory products
+      const userProducts = inMemoryProducts.get(user.id) || [];
+      
+      const formattedPosts = userPosts.map((post: any) => {
+        const product = userProducts.find((p: any) => p.id === post.productId);
+        return {
+          ...post,
+          product_title: product?.title || 'Unknown Product',
+          product_image: product?.imageUrl || '',
+          price: product?.price || 0,
+          description: product?.description || '',
+          media_url: post.mediaUrl,
+          shared_to_facebook: post.sharedToFacebook,
+          shared_to_instagram: post.sharedToInstagram
+        };
+      });
+      
+      res.json({ posts: formattedPosts });
+    } else {
+      console.error('Error fetching posts:', error);
+      res.status(500).json({ error: 'Failed to fetch posts' });
+    }
   }
 });
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
-import { Facebook, Instagram, ExternalLink, Copy, CheckCircle } from 'lucide-react';
+import { Facebook, Instagram, ExternalLink, Copy, CheckCircle, Play, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface GeneratedPost {
@@ -23,6 +23,31 @@ const GeneratedPostsPage = () => {
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState<string | null>(null);
   const [checkoutUrls, setCheckoutUrls] = useState<{ [key: string]: string }>({});
+  const [viewingVideo, setViewingVideo] = useState<string | null>(null);
+
+  // Helper to check if a video URL is valid and accessible
+  const isValidVideoUrl = (url: string | null | undefined): boolean => {
+    if (!url) return false;
+    if (url.trim() === '') return false;
+    
+    // Must be an S3 URL with .mp4 extension
+    if (!url.includes('.mp4')) return false;
+    
+    // Exclude mock URLs
+    if (url.includes('example.com')) return false;
+    if (url.includes('mock-')) return false;
+    
+    // Must be a real S3 URL (not just any URL with .mp4)
+    // Check if it starts with https:// and contains s3
+    if (!url.startsWith('https://')) return false;
+    if (!url.includes('.s3.')) return false;
+    
+    // Make sure it has a timestamp (real S3 uploads have timestamps in filename)
+    const filename = url.split('/').pop() || '';
+    const hasTimestamp = /\d{13}/.test(filename); // 13-digit timestamp
+    
+    return hasTimestamp;
+  };
 
   useEffect(() => {
     fetchPosts();
@@ -31,6 +56,7 @@ const GeneratedPostsPage = () => {
   const fetchPosts = async () => {
     try {
       const response = await axios.get('/api/ai/posts', { withCredentials: true });
+      console.log('Fetched posts:', response.data.posts);
       setPosts(response.data.posts);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -99,16 +125,42 @@ const GeneratedPostsPage = () => {
               <div key={post.id} className="bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="p-6">
                   <div className="flex items-start gap-4 mb-4">
-                    <img
-                      src={post.product_image}
-                      alt={post.product_title}
-                      className="w-24 h-24 object-cover rounded-lg"
-                    />
+                    <div className="relative">
+                      <img
+                        src={post.product_image}
+                        alt={post.product_title}
+                        className="w-24 h-24 object-cover rounded-lg"
+                      />
+                      {post.type === 'video' && isValidVideoUrl(post.media_url) && (
+                        <button
+                          onClick={() => setViewingVideo(post.media_url)}
+                          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded-lg hover:bg-opacity-70 transition-all"
+                          title="Play video"
+                        >
+                          <Play className="h-8 w-8 text-white" fill="white" />
+                        </button>
+                      )}
+                    </div>
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900">{post.product_title}</h3>
-                      <p className="text-sm text-gray-500">
-                        {post.type === 'post' ? 'Social Post' : 'Video Post'}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-gray-500">
+                          {post.type === 'post' ? 'Social Post' : 'Video Post'}
+                        </p>
+                        {post.type === 'video' && isValidVideoUrl(post.media_url) && (
+                          <button
+                            onClick={() => setViewingVideo(post.media_url)}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            View Video
+                          </button>
+                        )}
+                        {post.type === 'video' && !isValidVideoUrl(post.media_url) && (
+                          <span className="text-xs text-gray-400 italic">
+                            (Video not available)
+                          </span>
+                        )}
+                      </div>
                       <p className="text-lg font-bold text-blue-600 mt-1">${post.price}</p>
                     </div>
                   </div>
@@ -195,9 +247,65 @@ const GeneratedPostsPage = () => {
           </div>
         )}
       </div>
+
+      {/* Video Modal */}
+      {viewingVideo && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setViewingVideo(null)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Generated Video</h3>
+              <button
+                onClick={() => setViewingVideo(null)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <video
+                controls
+                autoPlay
+                className="w-full rounded-lg"
+                style={{ maxHeight: 'calc(90vh - 120px)' }}
+              >
+                <source src={viewingVideo} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+              <div className="mt-4 flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Video URL: 
+                  <a 
+                    href={viewingVideo} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700 ml-2"
+                  >
+                    Open in new tab
+                  </a>
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(viewingVideo);
+                    toast.success('Video URL copied to clipboard!');
+                  }}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 flex items-center gap-2"
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default GeneratedPostsPage;
-
