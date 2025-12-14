@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
-import { Sparkles, Loader, X, Save, FileText, Video } from 'lucide-react';
+import { Sparkles, Loader, X, Save, FileText, Video, ChevronDown, ChevronUp, ExternalLink, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Product {
@@ -11,6 +12,7 @@ interface Product {
   description: string;
   price: number;
   imageUrl: string;
+  purchaseUrl?: string;
 }
 
 interface GeneratedPost {
@@ -23,6 +25,7 @@ interface GeneratedPost {
 }
 
 const ProductsPage = () => {
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
@@ -32,6 +35,7 @@ const ProductsPage = () => {
   const [editingPost, setEditingPost] = useState<GeneratedPost | null>(null);
   const [editedContent, setEditedContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -69,10 +73,10 @@ const ProductsPage = () => {
 
   const handleGeneratePost = async (productId: string, type: 'post' | 'video') => {
     setGenerating(productId);
-    const loadingToast = toast.loading(`Generating ${type === 'post' ? 'post' : 'video'}...`);
+    const loadingToast = toast.loading(`Generating ${type === 'post' ? 'post' : 'creative'}...`);
     try {
       await axios.post('/api/ai/generate', { productId, type }, { withCredentials: true });
-      toast.success(`${type === 'post' ? 'Post' : 'Video'} generated successfully!`, { id: loadingToast });
+      toast.success(`${type === 'post' ? 'Post' : 'Creative'} generated successfully!`, { id: loadingToast });
       if (selectedProduct?.id === productId) {
         fetchProductPosts(productId);
       }
@@ -87,6 +91,7 @@ const ProductsPage = () => {
   const handleProductClick = (product: Product) => {
     setSelectedProduct(product);
     setEditingPost(null);
+    setDescriptionExpanded(false);
   };
 
   const handleClosePanel = () => {
@@ -198,18 +203,11 @@ const ProductsPage = () => {
                       )}
                     </button>
                     <button
-                      onClick={() => handleGeneratePost(product.id, 'video')}
-                      disabled={generating === product.id}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+                      onClick={() => navigate(`/creative/${product.id}`)}
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
                     >
-                      {generating === product.id ? (
-                        <Loader className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" />
-                          Generate Video
-                        </>
-                      )}
+                      <Wand2 className="h-4 w-4 mr-2" />
+                      Generate Creative
                     </button>
                   </div>
                 </div>
@@ -223,7 +221,7 @@ const ProductsPage = () => {
       {selectedProduct && (
         <div className="fixed inset-y-0 right-0 w-full md:w-1/2 lg:w-1/3 bg-white shadow-2xl z-50 overflow-y-auto">
           <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Edit Posts</h2>
+            <h2 className="text-xl font-semibold text-gray-900 truncate pr-4">Product Details</h2>
             <button
               onClick={handleClosePanel}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -235,16 +233,93 @@ const ProductsPage = () => {
           <div className="p-6">
             {/* Product Info */}
             <div className="mb-6 pb-6 border-b">
-              <img
-                src={selectedProduct.imageUrl}
-                alt={selectedProduct.title}
-                className="w-full h-48 object-cover rounded-lg mb-4"
-              />
+              <div className="relative mb-4 group">
+                <img
+                  src={selectedProduct.imageUrl}
+                  alt={selectedProduct.title}
+                  className="w-full h-48 object-cover rounded-lg"
+                />
+                {selectedProduct.purchaseUrl && (
+                  <a
+                    href={selectedProduct.purchaseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute top-3 right-3 p-2.5 bg-white/90 backdrop-blur-sm rounded-full shadow-lg hover:bg-orange-500 hover:text-white text-gray-700 transition-all duration-200 hover:scale-110"
+                    title="Buy this product"
+                  >
+                    <ExternalLink className="h-5 w-5" />
+                  </a>
+                )}
+              </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">
                 {selectedProduct.title}
               </h3>
-              <p className="text-sm text-gray-600 mb-2">{selectedProduct.description}</p>
-              <p className="text-xl font-bold text-blue-600">${selectedProduct.price}</p>
+              <p className="text-xl font-bold text-blue-600 mb-4">${selectedProduct.price}</p>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div 
+                  className={`text-sm text-gray-700 bg-gray-50 p-4 overflow-hidden transition-all duration-300 ${
+                    descriptionExpanded ? 'max-h-none' : 'max-h-32'
+                  }`}
+                >
+                  <div className="whitespace-pre-wrap leading-relaxed">
+                    {selectedProduct.description.split('\n').map((line, index) => {
+                      // Check if line is a section header (starts with emoji)
+                      const isHeader = /^[⌚✨💖📱🎨🔋🛒]/.test(line.trim());
+                      // Check if line is a bullet point
+                      const isBullet = line.trim().startsWith('•');
+                      
+                      if (isHeader) {
+                        return (
+                          <div key={index} className="font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
+                            {line}
+                          </div>
+                        );
+                      } else if (isBullet) {
+                        return (
+                          <div key={index} className="ml-2 mb-1">
+                            {line}
+                          </div>
+                        );
+                      } else if (line.trim() === '') {
+                        return <div key={index} className="h-2" />;
+                      } else {
+                        return (
+                          <div key={index} className="mb-1">
+                            {line}
+                          </div>
+                        );
+                      }
+                    })}
+                  </div>
+                </div>
+                {/* Expand/Collapse button */}
+                <button
+                  onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                  className="w-full py-2.5 px-4 flex items-center justify-center gap-2 text-sm font-medium text-blue-600 bg-white border-t border-gray-200 hover:bg-blue-50 transition-colors"
+                >
+                  {descriptionExpanded ? (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      Show Less
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      Show Full Description
+                    </>
+                  )}
+                </button>
+              </div>
+              {selectedProduct.purchaseUrl && (
+                <a
+                  href={selectedProduct.purchaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 transition-colors"
+                >
+                  🛒 Buy Now on AliExpress
+                </a>
+              )}
             </div>
 
             {/* Generated Posts */}
@@ -268,11 +343,10 @@ const ProductsPage = () => {
                       Generate Post
                     </button>
                     <button
-                      onClick={() => handleGeneratePost(selectedProduct.id, 'video')}
-                      disabled={generating === selectedProduct.id}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 text-sm"
+                      onClick={() => navigate(`/creative/${selectedProduct.id}`)}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
                     >
-                      Generate Video
+                      Generate Creative
                     </button>
                   </div>
                 </div>

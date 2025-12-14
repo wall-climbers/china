@@ -10,6 +10,7 @@ import productsRoutes from './routes/products';
 import aiRoutes from './routes/ai';
 import socialRoutes from './routes/social';
 import checkoutRoutes from './routes/checkout';
+import ugcRoutes from './routes/ugc';
 import './config/passport';
 
 dotenv.config();
@@ -59,6 +60,7 @@ app.use('/api/catalog', catalogRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/social', socialRoutes);
+app.use('/api/ugc', ugcRoutes);
 app.use('/checkout', checkoutRoutes);
 
 // Health check

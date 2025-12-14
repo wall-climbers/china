@@ -34,6 +34,7 @@ model Product {
   description String
   price       Float
   imageUrl    String   @map("image_url")
+  purchaseUrl String?  @map("purchase_url")
   catalogId   String?  @map("catalog_id")
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -84,4 +85,41 @@ model Session {
 
   @@index([expire])
   @@map("session")
+}
+
+// UGC Creative Generation Session
+model UgcSession {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  productId         String   @map("product_id")
+  
+  // Step 0: Demographics & Prompts
+  targetDemographic Json?    @map("target_demographic")
+  productPrompt     String?  @map("product_prompt")
+  characterPrompt   String?  @map("character_prompt")
+  scenes            Json?    // Array of scene prompts
+  
+  // Step 1: Character Generation
+  generatedCharacters Json?  @map("generated_characters") // Array of character image URLs
+  selectedCharacter   String? @map("selected_character")
+  
+  // Step 2: Character with Product
+  generatedProductImages Json? @map("generated_product_images") // Array of image URLs
+  selectedProductImage   String? @map("selected_product_image")
+  
+  // Step 3: Scene Editing
+  editedScenes      Json?    @map("edited_scenes") // User-edited scenes array
+  
+  // Step 4: Video Generation
+  videoUrl          String?  @map("video_url")
+  videoProgress     Int      @default(0) @map("video_progress") // 0-100
+  
+  // Status tracking
+  currentStep       Int      @default(0) @map("current_step")
+  status            String   @default("draft") // draft, generating, completed, failed
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("ugc_sessions")
 }

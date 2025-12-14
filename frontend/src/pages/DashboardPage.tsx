@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
-import { Link, Package, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import { Link as LinkIcon, Package, FileText, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 interface CatalogProvider {
@@ -121,12 +122,14 @@ const DashboardPage = () => {
             title="Products"
             value={stats.products}
             color="blue"
+            href="/products"
           />
           <StatCard
             icon={<FileText className="h-8 w-8" />}
             title="Generated Posts"
             value={stats.posts}
             color="green"
+            href="/posts"
           />
           <StatCard
             icon={catalogStatus?.connected ? <CheckCircle className="h-8 w-8" /> : <AlertCircle className="h-8 w-8" />}
@@ -223,20 +226,45 @@ const DashboardPage = () => {
   );
 };
 
-const StatCard = ({ icon, title, value, color }: { icon: React.ReactNode; title: string; value: number | string; color: string }) => {
+const StatCard = ({ icon, title, value, color, href }: { icon: React.ReactNode; title: string; value: number | string; color: string; href?: string }) => {
   const colorClasses = {
     blue: 'text-blue-600 bg-blue-50',
     green: 'text-green-600 bg-green-50',
     yellow: 'text-yellow-600 bg-yellow-50'
   };
 
-  return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <div className={`inline-flex p-3 rounded-lg ${colorClasses[color as keyof typeof colorClasses]} mb-4`}>
-        {icon}
+  const content = (
+    <>
+      <div className="flex items-start justify-between">
+        <div className={`inline-flex p-3 rounded-lg ${colorClasses[color as keyof typeof colorClasses]} mb-4`}>
+          {icon}
+        </div>
+        {href && (
+          <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600 transition-colors" />
+        )}
       </div>
       <h3 className="text-sm font-medium text-gray-500">{title}</h3>
       <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+      {href && (
+        <p className="text-xs text-blue-600 mt-2 group-hover:underline">Click to view →</p>
+      )}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        to={href}
+        className="group bg-white rounded-lg shadow-md p-6 hover:shadow-lg hover:ring-2 hover:ring-blue-500 transition-all cursor-pointer block"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-md p-6">
+      {content}
     </div>
   );
 };

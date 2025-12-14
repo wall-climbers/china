@@ -83,9 +83,52 @@ router.post('/sync', isAuthenticated, async (req, res) => {
       {
         sku: 'PROD-002',
         title: 'Smart Fitness Watch',
-        description: 'Track your fitness goals with this advanced smartwatch featuring heart rate monitoring and GPS.',
+        description: `⌚ IUTECH 2025 NEW Smart Watch: Your Ultimate Health & Connectivity Companion
+
+Experience the perfect blend of style, durability, and smart technology with the IUTECH 2025 NEW Smart Watch. Designed for an active lifestyle, this watch keeps you connected, monitors your health, and boasts an exceptional, long-lasting battery.
+
+✨ Key Features at a Glance
+• Professional IPX8 Waterproofing: Certified for professional underwater activities, including swimming.
+• Extended Battery Life: Up to 10 days of typical usage (20 days standby) with the 270mAh battery.
+• HD Bluetooth Calling: Enjoy crystal-clear, hands-free conversations directly from your wrist.
+• Advanced Health Monitoring: Track vital signs like blood pressure, blood oxygen (SpO2), and heart rate.
+• 100+ Customizable Watch Faces: Personalize your look with a huge selection or upload your own photos.
+
+💖 Unrivaled Health & Fitness Tracking
+Take a holistic approach to your wellness with built-in sensors and comprehensive tracking capabilities.
+• Vital Sign Monitoring: Easily monitor your blood pressure and blood oxygen levels, along with continuous heart rate tracking and sleep monitoring.
+• 24+ Sports Modes: Accurately record your steps, calories, and distance across a wide range of activities.
+• Professional Waterproofing: With an IPX8 rating, this watch is ready to join you for swimming and other water sports.
+
+📱 Seamless Connectivity & Communication
+Stay in touch without reaching for your phone.
+• High-Definition Calls: The HD Bluetooth Call feature allows you to make and receive calls with superior sound clarity, complete with a call history and dialpad.
+• Smart Notifications: Receive timely message pushes and notifications directly to your wrist.
+• Integrated Assistant: Use the built-in voice assistant for quick commands and hands-free control.
+• Remote Control: Easily use the remote camera feature to snap photos.
+
+🎨 Personalization & User Experience
+Make the IUTECH 2025 NEW Watch truly your own.
+• Customizable Display: Choose from 100+ watch faces via the Zmoofit APP or upload your favorite photo to create a unique display.
+• Large, Clear Display: View all your data clearly on the vibrant 1.85-inch TFT Color Display (240x240 pixels).
+• Intuitive Settings: Features like cover hand off screen, vibration intensity control, and a customizable menu style ensure a personalized user experience.
+• Wide Language Support: The system supports a variety of languages including English, Spanish, French, German, Japanese, Korean, and more.
+
+🔋 Power and Performance
+Designed for reliability and long-term use.
+• Battery Life (Typical): Up to 10 days
+• Battery Life (Standby): Up to 20 days
+• Battery Capacity: 270 mAh Li-pol
+• Waterproof Grade: Professional IPX8 (Swimming allowed)
+• Bluetooth Version: 5.2
+• App Compatibility: Android 8.0+ or iOS 9.0+
+• App Name: "Zmoofit"
+
+🛒 Ready to Purchase?
+Order now: https://www.aliexpress.com/item/1005008925093170.html`,
         price: 199.99,
-        imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500'
+        imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500',
+        purchaseUrl: 'https://www.aliexpress.com/item/1005008925093170.html'
       },
       {
         sku: 'PROD-003',
@@ -127,6 +170,7 @@ router.post('/sync', isAuthenticated, async (req, res) => {
               description: product.description,
               price: product.price,
               imageUrl: product.imageUrl,
+              purchaseUrl: (product as any).purchaseUrl || null,
               catalogId: user.catalogId
             },
             create: {
@@ -136,6 +180,7 @@ router.post('/sync', isAuthenticated, async (req, res) => {
               description: product.description,
               price: product.price,
               imageUrl: product.imageUrl,
+              purchaseUrl: (product as any).purchaseUrl || null,
               catalogId: user.catalogId
             }
           })
@@ -161,6 +206,7 @@ router.post('/sync', isAuthenticated, async (req, res) => {
               description: product.description,
               price: product.price,
               imageUrl: product.imageUrl,
+              purchaseUrl: (product as any).purchaseUrl || null,
               catalogId: user.catalogId,
               updatedAt: new Date()
             };
@@ -174,6 +220,7 @@ router.post('/sync', isAuthenticated, async (req, res) => {
               description: product.description,
               price: product.price,
               imageUrl: product.imageUrl,
+              purchaseUrl: (product as any).purchaseUrl || null,
               catalogId: user.catalogId,
               createdAt: new Date(),
               updatedAt: new Date()
