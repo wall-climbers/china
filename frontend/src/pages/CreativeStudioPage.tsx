@@ -5,7 +5,7 @@ import axios from 'axios';
 import { 
   ArrowLeft, ArrowRight, Check, Loader, Users, Image, Film, 
   Wand2, GripVertical, Play, Download, RefreshCw, Plus, Clock, 
-  AlertTriangle, X
+  AlertTriangle, X, FileText
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -167,6 +167,7 @@ const CreativeStudioPage = () => {
   const [videoStatus, setVideoStatus] = useState<string>('draft');
   const [stitchingStage, setStitchingStage] = useState<string>('');
   const [stitchingMessage, setStitchingMessage] = useState<string>('');
+  const [creatingPost, setCreatingPost] = useState(false);
 
   useEffect(() => {
     fetchProduct();
@@ -1050,6 +1051,32 @@ const CreativeStudioPage = () => {
         videoStatus: undefined,
         videoProgress: undefined
       })));
+    }
+  };
+
+  const handleCreatePost = async () => {
+    if (!videoUrl || !product || !session) return;
+    
+    setCreatingPost(true);
+    try {
+      const postContent = `🎬 Creative video for ${product.title}! 🎬\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Generated with AI creative studio\n\n#video #creative #${product.title.toLowerCase().replace(/\s+/g, '')}`;
+      
+      await axios.post('/api/ai/generate', {
+        productId: product.id,
+        type: 'video',
+        customContent: postContent,
+        customMediaUrl: videoUrl
+      }, { withCredentials: true });
+      
+      toast.success('Post created successfully!');
+      
+      // Navigate to generated posts page with this product's accordion expanded
+      navigate(`/posts?productId=${product.id}`);
+    } catch (error) {
+      console.error('Error creating post:', error);
+      toast.error('Failed to create post');
+    } finally {
+      setCreatingPost(false);
     }
   };
 
@@ -2196,21 +2223,42 @@ const CreativeStudioPage = () => {
                         poster={product?.imageUrl}
                       />
                     </div>
-                    <div className="flex justify-center gap-4">
-                      <a
-                        href={videoUrl}
-                        download
-                        className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all shadow-md"
-                      >
-                        <Download className="h-5 w-5" />
-                        Download Video
-                      </a>
-                      <button
-                        onClick={() => setShowSessionPicker(true)}
-                        className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all"
-                      >
-                        View All Sessions
-                      </button>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex justify-center gap-4">
+                        <a
+                          href={videoUrl}
+                          download
+                          className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all shadow-md"
+                        >
+                          <Download className="h-5 w-5" />
+                          Download Video
+                        </a>
+                        <button
+                          onClick={handleCreatePost}
+                          disabled={creatingPost}
+                          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {creatingPost ? (
+                            <>
+                              <Loader className="h-5 w-5 animate-spin" />
+                              Creating Post...
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="h-5 w-5" />
+                              Create Post
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => setShowSessionPicker(true)}
+                          className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all"
+                        >
+                          View All Sessions
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

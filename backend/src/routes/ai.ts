@@ -8,7 +8,7 @@ const router = express.Router();
 
 // Generate AI post for a product
 router.post('/generate', isAuthenticated, async (req, res) => {
-  const { productId, type } = req.body; // type: 'post' or 'video'
+  const { productId, type, customContent, customMediaUrl } = req.body; // type: 'post' or 'video'
   const user = req.user as any;
 
   if (!productId || !type) {
@@ -39,29 +39,39 @@ router.post('/generate', isAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Mock AI generation - in production, this would call an external AI service
-    const mockAIService = async (product: any, type: string) => {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    // If custom content and media URL are provided, use them directly (for creative studio videos)
+    let aiResult;
+    if (customContent && customMediaUrl) {
+      aiResult = {
+        content: customContent,
+        mediaUrl: customMediaUrl
+      };
+      console.log('📝 Using custom content and media URL for creative studio post');
+    } else {
+      // Mock AI generation - in production, this would call an external AI service
+      const mockAIService = async (product: any, type: string) => {
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
-      if (type === 'post') {
-        return {
-          content: `🌟 Check out our ${product.title}! 🌟\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Limited time offer - Shop now!\n\n#shopping #deals #${product.title.toLowerCase().replace(/\s+/g, '')}`,
-          mediaUrl: product.imageUrl
-        };
-      } else {
-        // Generate mock video and upload to S3
-        console.log('🎥 Generating mock video for:', product.title);
-        const videoUrl = await generateAndUploadVideo(product);
-        
-        return {
-          content: `🎬 Watch this amazing video about our ${product.title}! 🎬\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Get yours today!\n\n#video #product #${product.title.toLowerCase().replace(/\s+/g, '')}`,
-          mediaUrl: videoUrl
-        };
-      }
-    };
+        if (type === 'post') {
+          return {
+            content: `🌟 Check out our ${product.title}! 🌟\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Limited time offer - Shop now!\n\n#shopping #deals #${product.title.toLowerCase().replace(/\s+/g, '')}`,
+            mediaUrl: product.imageUrl
+          };
+        } else {
+          // Generate mock video and upload to S3
+          console.log('🎥 Generating mock video for:', product.title);
+          const videoUrl = await generateAndUploadVideo(product);
+          
+          return {
+            content: `🎬 Watch this amazing video about our ${product.title}! 🎬\n\n${product.description}\n\n💰 Only $${product.price}!\n\n✨ Get yours today!\n\n#video #product #${product.title.toLowerCase().replace(/\s+/g, '')}`,
+            mediaUrl: videoUrl
+          };
+        }
+      };
 
-    const aiResult = await mockAIService(product, type);
+      aiResult = await mockAIService(product, type);
+    }
 
     // Save generated post (with fallback to in-memory)
     let generatedPost;

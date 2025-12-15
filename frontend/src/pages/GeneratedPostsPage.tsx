@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import axios from 'axios';
 import { Facebook, Instagram, Copy, CheckCircle, Play, X, ChevronDown, ChevronUp, Package, Pencil, Trash2, ShoppingBag, Eye, Megaphone } from 'lucide-react';
@@ -27,6 +28,8 @@ interface ProductGroup {
 }
 
 const GeneratedPostsPage = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [posts, setPosts] = useState<GeneratedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState<string | null>(null);
@@ -106,6 +109,31 @@ const GeneratedPostsPage = () => {
   useEffect(() => {
     fetchPosts();
   }, []);
+
+  // Auto-expand accordion if productId is in URL query params
+  useEffect(() => {
+    const productId = searchParams.get('productId');
+    if (productId && posts.length > 0) {
+      // Check if this product has posts
+      const hasProduct = posts.some(post => post.product_id === productId);
+      if (hasProduct) {
+        // Expand the accordion for this product
+        setExpandedProducts(prev => new Set([...prev, productId]));
+        // Show success message
+        toast.success('Post created! View it below.');
+        // Clear the query parameter to prevent repeated toasts
+        navigate('/posts', { replace: true });
+        
+        // Scroll to the product section after a brief delay
+        setTimeout(() => {
+          const element = document.getElementById(`product-${productId}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 300);
+      }
+    }
+  }, [searchParams, posts, navigate]);
 
   // Lock body scroll when any modal is open
   useEffect(() => {
@@ -275,7 +303,11 @@ const GeneratedPostsPage = () => {
               {productGroups.map((group) => {
                 const isExpanded = expandedProducts.has(group.product_id);
                 return (
-                  <div key={group.product_id} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div 
+                    key={group.product_id} 
+                    id={`product-${group.product_id}`}
+                    className="bg-white rounded-lg shadow-md overflow-hidden"
+                  >
                     {/* Product Header */}
                     <button
                       onClick={() => toggleProductExpanded(group.product_id)}
