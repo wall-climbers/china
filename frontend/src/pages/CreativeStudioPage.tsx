@@ -791,20 +791,20 @@ const CreativeStudioPage = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
-        return <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">Completed</span>;
+        return <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">Completed</span>;
       case 'generating':
-        return <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">In Progress</span>;
+        return <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full font-medium">In Progress</span>;
       default:
-        return <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">Draft</span>;
+        return <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-medium">Draft</span>;
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="flex items-center justify-center h-96">
-          <Loader className="h-12 w-12 text-purple-500 animate-spin" />
+          <Loader className="h-12 w-12 text-purple-600 animate-spin" />
         </div>
       </div>
     );
@@ -813,28 +813,28 @@ const CreativeStudioPage = () => {
   // Session Picker Modal
   if (showSessionPicker) {
     return (
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="flex items-center gap-4 mb-8">
             <button
               onClick={() => navigate('/products')}
-              className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-white">Creative Studio</h1>
-              <p className="text-gray-400">{product?.title}</p>
+              <h1 className="text-2xl font-bold text-gray-900">Creative Studio</h1>
+              <p className="text-gray-600">{product?.title}</p>
             </div>
           </div>
 
-          <div className="bg-gray-800 rounded-2xl p-8">
+          <div className="bg-white rounded-2xl shadow-md p-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white">Your Creative Sessions</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Your Creative Sessions</h2>
               <button
                 onClick={createNewSession}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-all"
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all"
               >
                 <Plus className="h-4 w-4" />
                 New Session
@@ -843,11 +843,11 @@ const CreativeStudioPage = () => {
 
             {allSessions.length === 0 ? (
               <div className="text-center py-12">
-                <Wand2 className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-400 mb-6">No creative sessions yet for this product</p>
+                <Wand2 className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 mb-6">No creative sessions yet for this product</p>
                 <button
                   onClick={createNewSession}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 mx-auto"
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 mx-auto"
                 >
                   <Plus className="h-5 w-5" />
                   Start Your First Session
@@ -859,19 +859,19 @@ const CreativeStudioPage = () => {
                   <button
                     key={s.id}
                     onClick={() => loadSessionData(s)}
-                    className="w-full flex items-center justify-between p-4 bg-gray-700/50 hover:bg-gray-700 rounded-xl transition-all text-left"
+                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition-all text-left border border-gray-200"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gray-600 rounded-lg flex items-center justify-center">
+                      <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
                         {s.status === 'completed' ? (
-                          <Check className="h-6 w-6 text-green-400" />
+                          <Check className="h-6 w-6 text-green-600" />
                         ) : (
-                          <Wand2 className="h-6 w-6 text-purple-400" />
+                          <Wand2 className="h-6 w-6 text-purple-600" />
                         )}
                       </div>
                       <div>
                         <div className="flex items-center gap-3">
-                          <span className="text-white font-medium">
+                          <span className="text-gray-900 font-medium">
                             {s.targetDemographic 
                               ? `${s.targetDemographic.ageGroup} • ${s.targetDemographic.gender} • ${s.targetDemographic.tone}`
                               : 'New Session'
@@ -879,10 +879,10 @@ const CreativeStudioPage = () => {
                           </span>
                           {getStatusBadge(s.status)}
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-400 mt-1">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
                           <Clock className="h-3 w-3" />
                           {formatDate(s.updatedAt || s.createdAt)}
-                          <span className="text-gray-500">•</span>
+                          <span className="text-gray-400">•</span>
                           <span>Step {s.currentStep + 1} of {STEPS.length}</span>
                         </div>
                       </div>
@@ -899,19 +899,19 @@ const CreativeStudioPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-gray-50">
       <Navbar />
 
       {/* Back Confirmation Modal */}
       {showBackConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-2xl p-6 max-w-md w-full">
-            <div className="flex items-center gap-3 text-yellow-400 mb-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 text-yellow-600 mb-4">
               <AlertTriangle className="h-6 w-6" />
-              <h3 className="text-lg font-semibold">Reset Progress?</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Reset Progress?</h3>
             </div>
-            <p className="text-gray-300 mb-6">
-              Making changes to <span className="text-white font-medium">{STEPS[pendingStep || 0]?.name}</span> will 
+            <p className="text-gray-700 mb-6">
+              Making changes to <span className="text-gray-900 font-medium">{STEPS[pendingStep || 0]?.name}</span> will 
               reset all subsequent steps. You'll need to regenerate from this point onwards.
             </p>
             <div className="flex gap-3">
@@ -921,13 +921,13 @@ const CreativeStudioPage = () => {
                   setPendingStep(null);
                   setPendingEditCallback(null);
                 }}
-                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmGoBack}
-                className="flex-1 px-4 py-2 bg-yellow-500 text-black font-medium rounded-lg hover:bg-yellow-400 transition-all"
+                className="flex-1 px-4 py-2 bg-yellow-500 text-white font-medium rounded-lg hover:bg-yellow-600 transition-all"
               >
                 Yes, Continue
               </button>
@@ -942,18 +942,18 @@ const CreativeStudioPage = () => {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setShowSessionPicker(true)}
-              className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-white">Creative Studio</h1>
-              <p className="text-gray-400">{product?.title}</p>
+              <h1 className="text-2xl font-bold text-gray-900">Creative Studio</h1>
+              <p className="text-gray-600">{product?.title}</p>
             </div>
           </div>
           <button
             onClick={() => setShowSessionPicker(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-all text-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-sm shadow-sm"
           >
             <Clock className="h-4 w-4" />
             All Sessions
@@ -981,17 +981,17 @@ const CreativeStudioPage = () => {
                     <div
                       className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
                         isCurrent
-                          ? 'bg-purple-500 text-white ring-4 ring-purple-500/30'
+                          ? 'bg-purple-600 text-white ring-4 ring-purple-200'
                           : isCompleted
-                          ? 'bg-green-500 text-white hover:bg-green-400'
-                          : 'bg-gray-700 text-gray-400'
+                          ? 'bg-green-500 text-white hover:bg-green-600'
+                          : 'bg-gray-200 text-gray-400'
                       }`}
                     >
                       {isCompleted && !isCurrent ? <Check className="h-6 w-6" /> : <Icon className="h-5 w-5" />}
                     </div>
                     <span className={`mt-2 text-sm ${
-                      isCurrent ? 'text-white font-medium' : 
-                      isCompleted ? 'text-green-400' : 'text-gray-500'
+                      isCurrent ? 'text-gray-900 font-medium' : 
+                      isCompleted ? 'text-green-600' : 'text-gray-500'
                     }`}>
                       {step.name}
                     </span>
@@ -1001,7 +1001,7 @@ const CreativeStudioPage = () => {
                   </button>
                   {index < STEPS.length - 1 && (
                     <div className={`w-full h-1 mx-2 rounded ${
-                      furthestStep > step.id ? 'bg-green-500' : 'bg-gray-700'
+                      furthestStep > step.id ? 'bg-green-500' : 'bg-gray-200'
                     }`} style={{ width: '60px' }} />
                   )}
                 </div>
@@ -1011,19 +1011,19 @@ const CreativeStudioPage = () => {
         </div>
 
         {/* Step Content */}
-        <div className="bg-gray-800 rounded-2xl p-8 min-h-[500px]">
+        <div className="bg-white rounded-2xl shadow-md p-8 min-h-[500px]">
           {/* Step 0: Target Audience */}
           {currentStep === 0 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">Define Your Target Audience</h2>
-                <p className="text-gray-400">Help us create content that resonates with your ideal customer.</p>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Define Your Target Audience</h2>
+                <p className="text-gray-600">Help us create content that resonates with your ideal customer.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-6">
                 {/* Age Group */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Age Group</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Age Group</label>
                   <div className="flex flex-wrap gap-2">
                     {demographicOptions?.ageGroups?.map((age: string) => (
                       <button
@@ -1031,8 +1031,8 @@ const CreativeStudioPage = () => {
                         onClick={() => setDemographics({ ...demographics, ageGroup: age })}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                           demographics.ageGroup === age
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
                         {age}
@@ -1043,7 +1043,7 @@ const CreativeStudioPage = () => {
 
                 {/* Gender */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Gender</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
                   <div className="flex flex-wrap gap-2">
                     {demographicOptions?.genders?.map((gender: string) => (
                       <button
@@ -1051,8 +1051,8 @@ const CreativeStudioPage = () => {
                         onClick={() => setDemographics({ ...demographics, gender })}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                           demographics.gender === gender
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
                         {gender}
@@ -1063,7 +1063,7 @@ const CreativeStudioPage = () => {
 
                 {/* Interests */}
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Interests (select multiple)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Interests (select multiple)</label>
                   <div className="flex flex-wrap gap-2">
                     {demographicOptions?.interests?.map((interest: string) => (
                       <button
@@ -1076,8 +1076,8 @@ const CreativeStudioPage = () => {
                         }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                           demographics.interests.includes(interest)
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
                         {interest}
@@ -1088,7 +1088,7 @@ const CreativeStudioPage = () => {
 
                 {/* Tone */}
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Content Tone</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Content Tone</label>
                   <div className="flex flex-wrap gap-2">
                     {demographicOptions?.tones?.map((tone: string) => (
                       <button
@@ -1096,8 +1096,8 @@ const CreativeStudioPage = () => {
                         onClick={() => setDemographics({ ...demographics, tone })}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                           demographics.tone === tone
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
                         {tone}
@@ -1111,7 +1111,7 @@ const CreativeStudioPage = () => {
                 <button
                   onClick={handleStep0Submit}
                   disabled={generating || demographics.interests.length === 0}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
                 >
                   {generating ? (
                     <>
@@ -1133,8 +1133,8 @@ const CreativeStudioPage = () => {
           {currentStep === 1 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">Choose Your Character</h2>
-                <p className="text-gray-400">Select a character that best represents your brand ambassador.</p>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Choose Your Character</h2>
+                <p className="text-gray-600">Select a character that best represents your brand ambassador.</p>
               </div>
 
               {/* Generated Prompts Display */}
@@ -1142,11 +1142,11 @@ const CreativeStudioPage = () => {
                 <div className="space-y-4">
                   {/* Product Breakdown (String) */}
                   {productBreakdown && (
-                    <div className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-xl p-5 border border-purple-500/30">
-                      <h4 className="text-sm font-semibold text-purple-300 mb-4 flex items-center gap-2">
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-5 border border-purple-200">
+                      <h4 className="text-sm font-semibold text-purple-700 mb-4 flex items-center gap-2">
                         📊 Product Analysis (AI Generated)
                       </h4>
-                      <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
+                      <div className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
                         {productBreakdown}
                       </div>
                     </div>
@@ -1154,25 +1154,25 @@ const CreativeStudioPage = () => {
 
                   {/* Customer Avatar from Video Ad Output */}
                   {videoAdOutput?.customer_avatar && (
-                    <div className="bg-gradient-to-r from-pink-900/30 to-orange-900/30 rounded-xl p-5 border border-pink-500/30">
-                      <h4 className="text-sm font-semibold text-pink-300 mb-4 flex items-center gap-2">
+                    <div className="bg-gradient-to-r from-pink-50 to-orange-50 rounded-xl p-5 border border-pink-200">
+                      <h4 className="text-sm font-semibold text-pink-700 mb-4 flex items-center gap-2">
                         👤 Customer Avatar
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div>
-                          <h5 className="text-pink-400 font-medium mb-1">{videoAdOutput.customer_avatar.name}</h5>
-                          <p className="text-gray-400 text-xs mb-2">{videoAdOutput.customer_avatar.demographics}</p>
-                          <p className="text-gray-300">{videoAdOutput.customer_avatar.backstory}</p>
+                          <h5 className="text-pink-700 font-medium mb-1">{videoAdOutput.customer_avatar.name}</h5>
+                          <p className="text-gray-600 text-xs mb-2">{videoAdOutput.customer_avatar.demographics}</p>
+                          <p className="text-gray-700">{videoAdOutput.customer_avatar.backstory}</p>
                         </div>
                         <div>
-                          <h5 className="text-orange-400 font-medium mb-1">Visual Description</h5>
-                          <p className="text-gray-300 text-xs">{videoAdOutput.customer_avatar.visual_description}</p>
+                          <h5 className="text-orange-700 font-medium mb-1">Visual Description</h5>
+                          <p className="text-gray-700 text-xs">{videoAdOutput.customer_avatar.visual_description}</p>
                         </div>
                       </div>
                       {videoAdOutput.video_ad_script?.overall_tone && (
-                        <div className="mt-3 pt-3 border-t border-gray-600">
-                          <span className="text-xs text-gray-400">Ad Tone: </span>
-                          <span className="text-xs text-purple-300 font-medium">{videoAdOutput.video_ad_script.overall_tone}</span>
+                        <div className="mt-3 pt-3 border-t border-gray-300">
+                          <span className="text-xs text-gray-600">Ad Tone: </span>
+                          <span className="text-xs text-purple-700 font-medium">{videoAdOutput.video_ad_script.overall_tone}</span>
                         </div>
                       )}
                     </div>
@@ -1181,21 +1181,21 @@ const CreativeStudioPage = () => {
                   {/* Product & Character Prompts */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {productPrompt && (
-                      <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
-                        <h4 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
+                      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                        <h4 className="text-sm font-medium text-purple-700 mb-2 flex items-center gap-2">
                           <Wand2 className="h-4 w-4" />
                           Marketing Prompt
                         </h4>
-                        <p className="text-gray-300 text-sm leading-relaxed">{productPrompt}</p>
+                        <p className="text-gray-700 text-sm leading-relaxed">{productPrompt}</p>
                       </div>
                     )}
                     {characterPrompt && (
-                      <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
-                        <h4 className="text-sm font-medium text-pink-400 mb-2 flex items-center gap-2">
+                      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                        <h4 className="text-sm font-medium text-pink-700 mb-2 flex items-center gap-2">
                           <Users className="h-4 w-4" />
                           Character Prompt
                         </h4>
-                        <p className="text-gray-300 text-sm leading-relaxed">{characterPrompt}</p>
+                        <p className="text-gray-700 text-sm leading-relaxed">{characterPrompt}</p>
                       </div>
                     )}
                   </div>
@@ -1204,12 +1204,12 @@ const CreativeStudioPage = () => {
 
               {characters.length === 0 ? (
                 <div className="text-center py-12">
-                  <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-400 mb-6">Generate AI characters based on your target audience</p>
+                  <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-6">Generate AI characters based on your target audience</p>
                   <button
                     onClick={handleGenerateCharacters}
                     disabled={generating}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 mx-auto"
+                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 mx-auto shadow-md"
                   >
                     {generating ? (
                       <>
@@ -1231,8 +1231,8 @@ const CreativeStudioPage = () => {
                       <button
                         key={char.id}
                         onClick={() => handleSelectCharacter(char.url)}
-                        className={`relative rounded-xl overflow-hidden aspect-square group ${
-                          selectedCharacter === char.url ? 'ring-4 ring-purple-500' : ''
+                        className={`relative rounded-xl overflow-hidden aspect-square group shadow-md hover:shadow-lg transition-all ${
+                          selectedCharacter === char.url ? 'ring-4 ring-purple-600' : ''
                         }`}
                       >
                         <img src={char.url} alt="Character" className="w-full h-full object-cover" />
@@ -1240,7 +1240,7 @@ const CreativeStudioPage = () => {
                           <span className="text-white font-medium">Select</span>
                         </div>
                         {selectedCharacter === char.url && (
-                          <div className="absolute top-2 right-2 w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                          <div className="absolute top-2 right-2 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center shadow-md">
                             <Check className="h-5 w-5 text-white" />
                           </div>
                         )}
@@ -1251,7 +1251,7 @@ const CreativeStudioPage = () => {
                     <button
                       onClick={handleGenerateCharacters}
                       disabled={generating}
-                      className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
                       Regenerate
@@ -1259,7 +1259,7 @@ const CreativeStudioPage = () => {
                     <button
                       onClick={handleContinueFromCharacter}
                       disabled={!selectedCharacter}
-                      className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
                     >
                       Continue
                       <ArrowRight className="h-5 w-5" />
@@ -1274,18 +1274,18 @@ const CreativeStudioPage = () => {
           {currentStep === 2 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">Product Reference Image</h2>
-                <p className="text-gray-400">Select an image showing the character with your product.</p>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Product Reference Image</h2>
+                <p className="text-gray-600">Select an image showing the character with your product.</p>
               </div>
 
               {productImages.length === 0 ? (
                 <div className="text-center py-12">
-                  <Image className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-400 mb-6">Generate product reference images</p>
+                  <Image className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 mb-6">Generate product reference images</p>
                   <button
                     onClick={handleGenerateProductImages}
                     disabled={generating}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 mx-auto"
+                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 mx-auto shadow-md"
                   >
                     {generating ? (
                       <>
@@ -1307,8 +1307,8 @@ const CreativeStudioPage = () => {
                       <button
                         key={img.id}
                         onClick={() => handleSelectProductImage(img.url)}
-                        className={`relative rounded-xl overflow-hidden aspect-square group ${
-                          selectedProductImage === img.url ? 'ring-4 ring-purple-500' : ''
+                        className={`relative rounded-xl overflow-hidden aspect-square group shadow-md hover:shadow-lg transition-all ${
+                          selectedProductImage === img.url ? 'ring-4 ring-purple-600' : ''
                         }`}
                       >
                         <img src={img.url} alt="Product" className="w-full h-full object-cover" />
@@ -1316,7 +1316,7 @@ const CreativeStudioPage = () => {
                           <span className="text-white font-medium">Select</span>
                         </div>
                         {selectedProductImage === img.url && (
-                          <div className="absolute top-2 right-2 w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                          <div className="absolute top-2 right-2 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center shadow-md">
                             <Check className="h-5 w-5 text-white" />
                           </div>
                         )}
@@ -1327,7 +1327,7 @@ const CreativeStudioPage = () => {
                     <button
                       onClick={handleGenerateProductImages}
                       disabled={generating}
-                      className="flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
                       Regenerate
@@ -1335,7 +1335,7 @@ const CreativeStudioPage = () => {
                     <button
                       onClick={handleContinueFromProductImage}
                       disabled={!selectedProductImage}
-                      className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
                     >
                       Continue
                       <ArrowRight className="h-5 w-5" />
@@ -1350,29 +1350,29 @@ const CreativeStudioPage = () => {
           {currentStep === 3 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">Edit Your Scenes</h2>
-                <p className="text-gray-400">Customize and reorder the scenes for your video.</p>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Edit Your Scenes</h2>
+                <p className="text-gray-600">Customize and reorder the scenes for your video.</p>
               </div>
 
               <div className="space-y-6">
                 {scenes.map((scene, index) => (
                   <div
                     key={scene.id}
-                    className="bg-gray-700/50 rounded-xl p-5 border border-gray-600"
+                    className="bg-gray-50 rounded-xl p-5 border border-gray-200 shadow-sm"
                   >
                     <div className="flex items-start gap-4">
                       <div className="flex flex-col gap-1 pt-1">
                         <button
                           onClick={() => moveScene(index, 'up')}
                           disabled={index === 0}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded disabled:opacity-30"
+                          className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
                           ↑
                         </button>
                         <button
                           onClick={() => moveScene(index, 'down')}
                           disabled={index === scenes.length - 1}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded disabled:opacity-30"
+                          className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
                           ↓
                         </button>
@@ -1384,7 +1384,7 @@ const CreativeStudioPage = () => {
                             <button
                               onClick={() => toggleSceneIncluded(index)}
                               className={`relative w-12 h-6 rounded-full transition-colors ${
-                                scene.included !== false ? 'bg-purple-500' : 'bg-gray-600'
+                                scene.included !== false ? 'bg-purple-600' : 'bg-gray-300'
                               }`}
                             >
                               <span
@@ -1393,21 +1393,21 @@ const CreativeStudioPage = () => {
                                 }`}
                               />
                             </button>
-                            <h3 className="font-semibold text-white text-lg">
+                            <h3 className="font-semibold text-gray-900 text-lg">
                               Scene {index + 1}: {scene.title}
                             </h3>
                           </div>
                           <div className="flex items-center gap-2">
                             {scene.included === false && (
-                              <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">Excluded</span>
+                              <span className="text-xs text-gray-600 bg-gray-200 px-2 py-1 rounded">Excluded</span>
                             )}
-                            <span className="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">{scene.duration}s</span>
+                            <span className="text-sm text-gray-600 bg-white border border-gray-300 px-3 py-1 rounded-full">{scene.duration}s</span>
                           </div>
                         </div>
                         
                         {/* Visuals */}
                         <div>
-                          <label className="block text-sm font-medium text-purple-400 mb-1.5">
+                          <label className="block text-sm font-medium text-purple-700 mb-1.5">
                             Visuals
                           </label>
                           <textarea
@@ -1415,14 +1415,14 @@ const CreativeStudioPage = () => {
                             onChange={(e) => { updateScenePrompt(index, e.target.value); autoResize(e); }}
                             onBlur={handleUpdateScenes}
                             onFocus={(e) => autoResize(e as any)}
-                            className="scene-textarea w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none resize-none overflow-hidden"
+                            className="scene-textarea w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none resize-none overflow-hidden"
                             style={{ minHeight: '60px' }}
                           />
                         </div>
 
                         {/* Dialogue */}
                         <div>
-                          <label className="block text-sm font-medium text-pink-400 mb-1.5">
+                          <label className="block text-sm font-medium text-pink-700 mb-1.5">
                             Dialogue
                           </label>
                           <textarea
@@ -1430,7 +1430,7 @@ const CreativeStudioPage = () => {
                             onChange={(e) => { updateSceneDialogue(index, e.target.value); autoResize(e); }}
                             onBlur={handleUpdateScenes}
                             onFocus={(e) => autoResize(e as any)}
-                            className="scene-textarea w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none resize-none overflow-hidden"
+                            className="scene-textarea w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none resize-none overflow-hidden"
                             style={{ minHeight: '60px' }}
                             placeholder="Enter dialogue for this scene..."
                           />
@@ -1439,7 +1439,7 @@ const CreativeStudioPage = () => {
                         {/* Motion & Transitions */}
                         <div className="grid grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-sm font-medium text-blue-400 mb-1.5">
+                            <label className="block text-sm font-medium text-blue-700 mb-1.5">
                               Motion
                             </label>
                             <input
@@ -1447,12 +1447,12 @@ const CreativeStudioPage = () => {
                               value={scene.motion || ''}
                               onChange={(e) => updateSceneMotion(index, e.target.value)}
                               onBlur={handleUpdateScenes}
-                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                              className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
                               placeholder="Camera movement..."
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-orange-400 mb-1.5">
+                            <label className="block text-sm font-medium text-orange-700 mb-1.5">
                               Transition Notes
                             </label>
                             <input
@@ -1460,19 +1460,19 @@ const CreativeStudioPage = () => {
                               value={scene.transitions || ''}
                               onChange={(e) => updateSceneTransitions(index, e.target.value)}
                               onBlur={handleUpdateScenes}
-                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+                              className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none"
                               placeholder="Transition type..."
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-green-400 mb-1.5">
+                            <label className="block text-sm font-medium text-green-700 mb-1.5">
                               Video Transition {index < scenes.length - 1 ? '→ Next' : '(End)'}
                             </label>
                             <select
                               value={scene.transitionType || 'fade'}
                               onChange={(e) => updateSceneTransitionType(index, e.target.value as Scene['transitionType'])}
                               disabled={index === scenes.length - 1}
-                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none disabled:opacity-50"
+                              className="w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none disabled:opacity-50"
                             >
                               {TRANSITION_OPTIONS.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1482,11 +1482,11 @@ const CreativeStudioPage = () => {
                         </div>
 
                         {/* Scene Image & Generate Button */}
-                        <div className="pt-4 border-t border-gray-600">
+                        <div className="pt-4 border-t border-gray-300">
                           <div className="flex items-start gap-4">
                             {/* Generated Image */}
                             {scene.imageUrl && (
-                              <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 border border-gray-600">
+                              <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 border border-gray-300 shadow-sm">
                                 <img 
                                   src={scene.imageUrl} 
                                   alt={`Scene ${index + 1}`} 
@@ -1550,7 +1550,7 @@ const CreativeStudioPage = () => {
                                   <video 
                                     src={scene.videoUrl} 
                                     controls 
-                                    className="w-full max-w-xs rounded-lg border border-gray-600"
+                                    className="w-full max-w-xs rounded-lg border border-gray-300 shadow-sm"
                                   />
                                 </div>
                               )}
@@ -1564,13 +1564,13 @@ const CreativeStudioPage = () => {
               </div>
 
               {/* Summary & Generate Button */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-700">
-                <div className="text-sm text-gray-400">
-                  <span className="text-green-400 font-medium">
+              <div className="flex items-center justify-between pt-4 border-t border-gray-300">
+                <div className="text-sm text-gray-600">
+                  <span className="text-green-600 font-semibold">
                     {scenes.filter(s => s.videoUrl && s.included !== false).length}
                   </span>
                   {' / '}
-                  <span>{scenes.filter(s => s.included !== false).length}</span>
+                  <span className="font-medium">{scenes.filter(s => s.included !== false).length}</span>
                   {' scenes ready for stitching'}
                   {scenes.filter(s => s.videoUrl && s.included !== false).length > 0 && (
                     <span className="ml-3 text-gray-500">
@@ -1581,7 +1581,7 @@ const CreativeStudioPage = () => {
                 <button
                   onClick={handleGenerateVideo}
                   disabled={scenes.filter(s => s.videoUrl && s.included !== false).length === 0}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                 >
                   <Play className="h-5 w-5" />
                   Stitch Videos ({scenes.filter(s => s.videoUrl && s.included !== false).length} scenes)
@@ -1594,10 +1594,10 @@ const CreativeStudioPage = () => {
           {currentStep === 4 && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">
                   {videoStatus === 'completed' ? 'Your Video is Ready!' : 'Generating Your Video'}
                 </h2>
-                <p className="text-gray-400">
+                <p className="text-gray-600">
                   {videoStatus === 'completed' 
                     ? 'Download and share your creative content.'
                     : 'Please wait while we create your video...'}
@@ -1611,33 +1611,33 @@ const CreativeStudioPage = () => {
                     <div className="flex justify-center gap-2 mb-6">
                       {['downloading', 'processing', 'stitching', 'uploading'].map((stage, idx) => (
                         <div key={stage} className="flex items-center">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shadow-sm ${
                             stitchingStage === stage 
-                              ? 'bg-purple-500 text-white animate-pulse' 
+                              ? 'bg-purple-600 text-white animate-pulse' 
                               : ['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx
                                 ? 'bg-green-500 text-white'
-                                : 'bg-gray-700 text-gray-400'
+                                : 'bg-gray-200 text-gray-600'
                           }`}>
                             {['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx ? '✓' : idx + 1}
                           </div>
-                          {idx < 3 && <div className="w-8 h-0.5 bg-gray-700 mx-1" />}
+                          {idx < 3 && <div className="w-8 h-0.5 bg-gray-300 mx-1" />}
                         </div>
                       ))}
                     </div>
                     
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-400">Progress</span>
-                      <span className="text-white font-medium">{videoProgress}%</span>
+                      <span className="text-gray-700 font-medium">Progress</span>
+                      <span className="text-gray-900 font-semibold">{videoProgress}%</span>
                     </div>
-                    <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-3 bg-gray-200 rounded-full overflow-hidden shadow-inner">
                       <div
-                        className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
+                        className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-500"
                         style={{ width: `${videoProgress}%` }}
                       />
                     </div>
                     <div className="mt-4 text-center">
-                      <Loader className="h-8 w-8 text-purple-500 animate-spin mx-auto mb-2" />
-                      <p className="text-gray-400 text-sm">
+                      <Loader className="h-8 w-8 text-purple-600 animate-spin mx-auto mb-2" />
+                      <p className="text-gray-700 text-sm font-medium">
                         {stitchingMessage || (
                           <>
                             {stitchingStage === 'downloading' && '📥 Downloading scene videos...'}
@@ -1648,7 +1648,7 @@ const CreativeStudioPage = () => {
                           </>
                         )}
                       </p>
-                      <p className="text-gray-500 text-xs mt-2">
+                      <p className="text-gray-600 text-xs mt-2">
                         Combining {scenes.filter(s => s.videoUrl && s.included !== false).length} scenes
                       </p>
                     </div>
@@ -1659,7 +1659,7 @@ const CreativeStudioPage = () => {
               {videoStatus === 'completed' && videoUrl && (
                 <div className="py-8">
                   <div className="max-w-2xl mx-auto">
-                    <div className="aspect-video bg-black rounded-xl overflow-hidden mb-6">
+                    <div className="aspect-video bg-black rounded-xl overflow-hidden mb-6 shadow-lg">
                       <video
                         src={videoUrl}
                         controls
@@ -1671,14 +1671,14 @@ const CreativeStudioPage = () => {
                       <a
                         href={videoUrl}
                         download
-                        className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 transition-all"
+                        className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all shadow-md"
                       >
                         <Download className="h-5 w-5" />
                         Download Video
                       </a>
                       <button
                         onClick={() => setShowSessionPicker(true)}
-                        className="flex items-center gap-2 px-6 py-3 bg-gray-700 text-white rounded-lg font-medium hover:bg-gray-600 transition-all"
+                        className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all"
                       >
                         View All Sessions
                       </button>
@@ -1689,10 +1689,10 @@ const CreativeStudioPage = () => {
 
               {videoStatus === 'failed' && (
                 <div className="py-12 text-center">
-                  <p className="text-red-400 mb-4">Video generation failed. Please try again.</p>
+                  <p className="text-red-600 mb-4 font-medium">Video generation failed. Please try again.</p>
                   <button
                     onClick={handleGenerateVideo}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 mx-auto"
+                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 mx-auto shadow-md"
                   >
                     <RefreshCw className="h-5 w-5" />
                     Retry
