@@ -9,6 +9,7 @@ export interface VideoScene {
   section: string;
   visuals: string;
   dialogue: string;
+  native_dialogue?: string;
   motion: string;
   transitions: string;
 }
@@ -574,6 +575,7 @@ Output in this exact JSON format:
       "section": "Hook",
       "visuals": "[Detailed image generation prompt for the scene, ensuring consistency, product integration, style, background, and pose. Primary subject not too close for 9:16 crop.]",
       "dialogue": "[Corresponding script dialogue - attention-grabbing opening]",
+      "native_dialogue": "[Translated script from the English script dialogue to the target country's native language. If there are multiple countries, default to English.]"
       "motion": "[Camera movement instructions (e.g., slow zoom-in, pan, hold)]",
       "transitions": "[Transition type (e.g., smooth cut, fade, wipe)]"
     },
@@ -582,6 +584,7 @@ Output in this exact JSON format:
       "section": "Problem",
       "visuals": "[Detailed image generation prompt showing the problem/pain point]",
       "dialogue": "[Script dialogue highlighting the problem the audience faces]",
+      "native_dialogue": "[Translated script from the English script dialogue to the target country's native language. If there are multiple countries, default to English.]"
       "motion": "[Camera movement instructions]",
       "transitions": "[Transition type]"
     },
@@ -590,6 +593,7 @@ Output in this exact JSON format:
       "section": "Solution",
       "visuals": "[Detailed image generation prompt introducing the product as solution]",
       "dialogue": "[Script dialogue presenting the product]",
+      "native_dialogue": "[Translated script from the English script dialogue to the target country's native language. If there are multiple countries, default to English.]"
       "motion": "[Camera movement instructions]",
       "transitions": "[Transition type]"
     },
@@ -598,6 +602,7 @@ Output in this exact JSON format:
       "section": "Testimonial/Proof",
       "visuals": "[Detailed image generation prompt showing product benefits/results]",
       "dialogue": "[Script dialogue with testimonial or proof points]",
+      "native_dialogue": "[Translated script from the English script dialogue to the target country's native language. If there are multiple countries, default to English.]"
       "motion": "[Camera movement instructions]",
       "transitions": "[Transition type]"
     },
@@ -606,6 +611,7 @@ Output in this exact JSON format:
       "section": "Call to Action",
       "visuals": "[Detailed image generation prompt for the CTA scene]",
       "dialogue": "[Strong call to action dialogue]",
+      "native_dialogue": "[Translated script from the English script dialogue to the target country's native language. If there are multiple countries, default to English.]"
       "motion": "[Camera movement instructions]",
       "transitions": "[Transition type]"
     }
@@ -642,6 +648,7 @@ Respond ONLY with the JSON object.`;
         title: scene.section,
         prompt: scene.visuals,
         dialogue: scene.dialogue,
+        native_dialogue: scene.native_dialogue || '',
         motion: scene.motion,
         transitions: scene.transitions,
         duration: scene.section === 'Hook' ? 3 : scene.section === 'Call to Action' ? 3 : 4
@@ -691,6 +698,7 @@ Hyper-realistic portrait, positioned with space around for 9:16 vertical crop.`;
         title: 'Hook',
         prompt: `Opening shot: ${gender !== 'All' ? gender : 'Person'} in their ${ageGroup}s looking directly at camera with an intrigued expression, about to share something exciting. ${tone} lighting and modern setting. Hyper-realistic, positioned for 9:16 crop with headroom.`,
         dialogue: `"Wait, you NEED to see this..."`,
+        native_dialogue: '',
         motion: 'Slow zoom-in on face',
         transitions: 'Smooth cut',
         duration: 3
@@ -700,6 +708,7 @@ Hyper-realistic portrait, positioned with space around for 9:16 vertical crop.`;
         title: 'Problem',
         prompt: `The creator shows a common frustration that ${ageGroup} year olds face related to ${interests[0] || 'daily life'}. Authentic, relatable moment. Medium shot with room for vertical crop.`,
         dialogue: `"I used to struggle with this all the time..."`,
+        native_dialogue: '',
         motion: 'Slight pan left to right',
         transitions: 'Quick cut',
         duration: 4
@@ -709,6 +718,7 @@ Hyper-realistic portrait, positioned with space around for 9:16 vertical crop.`;
         title: 'Solution',
         prompt: `Reveal of ${product.title}. The creator's face lights up as they hold the product. Clean product shot with ${tone.toLowerCase()} presentation style. Full body or 3/4 shot for 9:16 framing.`,
         dialogue: `"Then I found the ${product.title}!"`,
+        native_dialogue: '',
         motion: 'Dynamic reveal with zoom',
         transitions: 'Fade transition',
         duration: 4
@@ -718,6 +728,7 @@ Hyper-realistic portrait, positioned with space around for 9:16 vertical crop.`;
         title: 'Testimonial/Proof',
         prompt: `The creator demonstrates ${product.title} in action. Close-up shots of key features interspersed with reaction shots. Natural, unscripted feel showing genuine appreciation.`,
         dialogue: `"Look at how easy this is... and the quality is incredible!"`,
+        native_dialogue: '',
         motion: 'Close-up shots with smooth transitions',
         transitions: 'Quick cuts between angles',
         duration: 5
@@ -727,6 +738,7 @@ Hyper-realistic portrait, positioned with space around for 9:16 vertical crop.`;
         title: 'Call to Action',
         prompt: `The creator enthusiastically recommends ${product.title}. Direct eye contact, genuine smile, and clear call to action. Product visible in frame. Centered composition for 9:16.`,
         dialogue: `"Link in bio - trust me, you won't regret it!"`,
+        native_dialogue: '',
         motion: 'Hold on face, slight zoom',
         transitions: 'Fade to end card',
         duration: 3

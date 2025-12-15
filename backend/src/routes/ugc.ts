@@ -1161,8 +1161,10 @@ router.get('/sessions/:id/scene-video-status', isAuthenticated, async (req, res)
 // Generate all scene videos at once
 router.post('/sessions/:id/generate-all-scene-videos', isAuthenticated, async (req, res) => {
   const { id } = req.params;
-  const { scenes } = req.body;
+  const { scenes, dialogueMode } = req.body;
   const user = req.user as any;
+
+  console.log('🎬 [Generate All Videos] dialogueMode:', dialogueMode || 'english');
 
   try {
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -1178,7 +1180,11 @@ router.post('/sessions/:id/generate-all-scene-videos', isAuthenticated, async (r
       }
 
       const sceneIndex = scene.id - 1; // scene.id is 1-based
-      const prompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${scene.dialogue || ''}"`;
+      // Use native dialogue if dialogueMode is 'native', otherwise use English
+      const selectedDialogue = dialogueMode === 'native' 
+        ? (scene.native_dialogue || scene.dialogue || '') 
+        : (scene.dialogue || '');
+      const prompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${selectedDialogue}"`;
 
       // Create job in database
       let jobId: string;

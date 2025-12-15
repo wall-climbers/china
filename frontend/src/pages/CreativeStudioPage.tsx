@@ -41,6 +41,7 @@ interface Scene {
   title: string;
   prompt: string;      // visuals
   dialogue: string;
+  native_dialogue?: string;  // native language dialogue
   motion: string;
   transitions: string; // original transitions text from LLM
   duration: number;
@@ -217,6 +218,7 @@ const CreativeStudioPage = () => {
   
   // Step 3: Scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [dialogueMode, setDialogueMode] = useState<'english' | 'native'>('english');
   
   // Generated Prompts (from LLM)
   const [productPrompt, setProductPrompt] = useState<string>('');
@@ -926,6 +928,12 @@ const CreativeStudioPage = () => {
     setScenes(newScenes);
   };
 
+  const updateSceneNativeDialogue = (index: number, native_dialogue: string) => {
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], native_dialogue };
+    setScenes(newScenes);
+  };
+
   const updateSceneMotion = (index: number, motion: string) => {
     const newScenes = [...scenes];
     newScenes[index] = { ...newScenes[index], motion };
@@ -1084,7 +1092,11 @@ const CreativeStudioPage = () => {
 
     try {
       // Build a comprehensive prompt from scene data
-      const videoPrompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${scene.dialogue || ''}"`;
+      // Use native dialogue if native mode is selected, otherwise use English
+      const selectedDialogue = dialogueMode === 'native' 
+        ? (scene.native_dialogue || scene.dialogue || '') 
+        : (scene.dialogue || '');
+      const videoPrompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${selectedDialogue}"`;
       
       const response = await axios.post(
         `/api/ugc/sessions/${session.id}/generate-scene-video`,
@@ -1222,7 +1234,7 @@ const CreativeStudioPage = () => {
     try {
       const response = await axios.post(
         `/api/ugc/sessions/${session.id}/generate-all-scene-videos`,
-        { scenes: scenesToGenerate },
+        { scenes: scenesToGenerate, dialogueMode },
         { withCredentials: true }
       );
 
@@ -2259,6 +2271,33 @@ const CreativeStudioPage = () => {
                 <p className="text-gray-600">Customize and reorder the scenes for your video.</p>
               </div>
 
+              {/* Dialogue Mode Toggle */}
+              <div className="flex items-center gap-4 p-4 bg-pink-50 rounded-lg border border-pink-200">
+                <span className="text-sm font-medium text-gray-700">Dialogue Language:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setDialogueMode('english')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      dialogueMode === 'english'
+                        ? 'bg-pink-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    onClick={() => setDialogueMode('native')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      dialogueMode === 'native'
+                        ? 'bg-pink-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Native
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-6">
                 {scenes.map((scene, index) => (
                   <div
@@ -2325,20 +2364,32 @@ const CreativeStudioPage = () => {
                           />
                         </div>
 
-                        {/* Dialogue */}
+                        {/* Dialogue - conditional based on mode */}
                         <div>
                           <label className="block text-sm font-medium text-pink-700 mb-1.5">
-                            Dialogue
+                            {dialogueMode === 'native' ? 'Native Dialogue' : 'English Dialogue'}
                           </label>
-                          <textarea
-                            value={scene.dialogue || ''}
-                            onChange={(e) => { updateSceneDialogue(index, e.target.value); autoResize(e); }}
-                            onBlur={() => handleUpdateScenes()}
-                            onFocus={(e) => autoResize(e as any)}
-                            className="scene-textarea w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none resize-none overflow-hidden"
-                            style={{ minHeight: '60px' }}
-                            placeholder="Enter dialogue for this scene..."
-                          />
+                          {dialogueMode === 'native' ? (
+                            <textarea
+                              value={scene.native_dialogue || ''}
+                              onChange={(e) => { updateSceneNativeDialogue(index, e.target.value); autoResize(e); }}
+                              onBlur={() => handleUpdateScenes()}
+                              onFocus={(e) => autoResize(e as any)}
+                              className="scene-textarea w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none resize-none overflow-hidden"
+                              style={{ minHeight: '60px' }}
+                              placeholder="Enter native dialogue for this scene..."
+                            />
+                          ) : (
+                            <textarea
+                              value={scene.dialogue || ''}
+                              onChange={(e) => { updateSceneDialogue(index, e.target.value); autoResize(e); }}
+                              onBlur={() => handleUpdateScenes()}
+                              onFocus={(e) => autoResize(e as any)}
+                              className="scene-textarea w-full bg-white text-gray-900 rounded-lg p-3 text-sm border border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none resize-none overflow-hidden"
+                              style={{ minHeight: '60px' }}
+                              placeholder="Enter dialogue for this scene..."
+                            />
+                          )}
                         </div>
 
                         {/* Motion & Transitions */}
