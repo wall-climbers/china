@@ -253,7 +253,15 @@ export class VideoStitcherService {
     } = options;
     
     const jobId = uuidv4();
-    const reportProgress = onProgress || (() => {});
+    const reportProgress = (progress: StitchProgress) => {
+      try {
+        if (onProgress) {
+          onProgress(progress);
+        }
+      } catch (e) {
+        console.warn('Progress callback error:', e);
+      }
+    };
 
     // Filter to only include scenes that should be in final video
     const includedScenes = scenes.filter(s => s.includeInFinal !== false);
@@ -264,6 +272,7 @@ export class VideoStitcherService {
 
     if (includedScenes.length === 1) {
       // Single video, just return it
+      reportProgress({ stage: 'complete', progress: 100, message: 'Video ready!' });
       return { success: true, videoUrl: includedScenes[0].videoUrl };
     }
 

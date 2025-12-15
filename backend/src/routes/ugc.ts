@@ -1259,21 +1259,38 @@ router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) =>
     const scenesWithTransitions = videoStitcherService.autoAssignTransitions(scenesWithVideos);
 
     // Run stitching in background with progress tracking
-    videoStitcherService.stitchVideos(
-      {
-        scenes: scenesWithTransitions,
-        transitionDuration: 0.5,
-        outputQuality: 'high'
-      },
-      (progress: StitchProgress) => {
-        // Store progress for polling
-        stitchingProgress.set(id, progress);
-        
-        // Update session progress in DB
-        const dbProgress = progress.progress;
-        updateSessionProgress(id, user.id, dbProgress, progress.stage === 'complete', progress.stage === 'error');
+    // Wrapped in a safe executor to prevent unhandled rejections from crashing the server
+    const safeStitchVideos = async () => {
+      try {
+        return await videoStitcherService.stitchVideos(
+          {
+            scenes: scenesWithTransitions,
+            transitionDuration: 0.5,
+            outputQuality: 'high'
+          },
+          (progress: StitchProgress) => {
+            try {
+              // Store progress for polling
+              stitchingProgress.set(id, progress);
+              
+              // Update session progress in DB
+              const dbProgress = progress.progress;
+              updateSessionProgress(id, user.id, dbProgress, progress.stage === 'complete', progress.stage === 'error');
+            } catch (progressError) {
+              console.error('Progress update error (non-fatal):', progressError);
+            }
+          }
+        );
+      } catch (error) {
+        console.error('❌ Video stitching threw an error:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unexpected stitching error' 
+        };
       }
-    ).then(async (result) => {
+    };
+
+    safeStitchVideos().then(async (result) => {
       if (result.success && result.videoUrl) {
         console.log(`✅ Video stitching complete: ${result.videoUrl}`);
         
@@ -1341,6 +1358,36 @@ router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) =>
       }
       
       // Clean up progress tracker after a delay
+      setTimeout(() => stitchingProgress.delete(id), 60000);
+    }).catch(async (error) => {
+      // This catches any unhandled errors in the promise chain
+      console.error('❌ Unhandled error in video stitching pipeline:', error);
+      
+      // Update session with error status
+      try {
+        await prisma.$executeRaw`
+          UPDATE ugc_sessions 
+          SET status = 'failed',
+              updated_at = NOW()
+          WHERE id = ${id}
+        `;
+      } catch {
+        const userSessions = inMemoryUgcSessions.get(user.id) || [];
+        const sessionIndex = userSessions.findIndex(s => s.id === id);
+        if (sessionIndex !== -1) {
+          userSessions[sessionIndex].status = 'failed';
+          userSessions[sessionIndex].updatedAt = new Date();
+          inMemoryUgcSessions.set(user.id, userSessions);
+        }
+      }
+      
+      // Update progress tracker with error
+      stitchingProgress.set(id, {
+        stage: 'error',
+        progress: 0,
+        message: error instanceof Error ? error.message : 'Unexpected error'
+      });
+      
       setTimeout(() => stitchingProgress.delete(id), 60000);
     });
 
@@ -1433,16 +1480,42 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
     // No active progress - get from DB/in-memory
     try {
       const sessions = await prisma.$queryRaw`
-        SELECT video_progress, status, video_url, stitched_videos FROM ugc_sessions 
+        SELECT video_progress, status, video_url, stitched_videos, updated_at FROM ugc_sessions 
         WHERE id = ${id} AND user_id = ${user.id}
       ` as any[];
 
       if (sessions.length) {
+        const sessionData = sessions[0];
+        let status = sessionData.status;
+        let progress = sessionData.video_progress;
+        
+        // Detect stale "generating" status (no active stitching but DB shows generating)
+        // This happens when the server crashed/restarted during stitching
+        if (status === 'generating') {
+          const lastUpdated = new Date(sessionData.updated_at);
+          const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+          
+          if (lastUpdated < tenMinutesAgo) {
+            // This job has been "generating" for over 10 minutes with no progress
+            // Mark it as failed so user can retry
+            console.log(`⚠️ Detected stale generating job for session ${id}, resetting to failed`);
+            
+            await prisma.$executeRaw`
+              UPDATE ugc_sessions 
+              SET status = 'failed', updated_at = NOW()
+              WHERE id = ${id}
+            `;
+            
+            status = 'failed';
+            progress = 0;
+          }
+        }
+        
         res.json({
-          progress: sessions[0].video_progress,
-          status: sessions[0].status,
-          videoUrl: sessions[0].video_url,
-          stitchedVideos: sessions[0].stitched_videos
+          progress: progress,
+          status: status,
+          videoUrl: sessionData.video_url,
+          stitchedVideos: sessionData.stitched_videos
         });
         return;
       }
@@ -1450,9 +1523,27 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
       const userSessions = inMemoryUgcSessions.get(user.id) || [];
       const session = userSessions.find(s => s.id === id);
       if (session) {
+        let status = session.status;
+        let progress = session.videoProgress;
+        
+        // Same stale detection for in-memory storage
+        if (status === 'generating') {
+          const lastUpdated = new Date(session.updatedAt);
+          const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+          
+          if (lastUpdated < tenMinutesAgo) {
+            console.log(`⚠️ Detected stale generating job for session ${id} (in-memory), resetting to failed`);
+            session.status = 'failed';
+            session.videoProgress = 0;
+            session.updatedAt = new Date();
+            status = 'failed';
+            progress = 0;
+          }
+        }
+        
         res.json({
-          progress: session.videoProgress,
-          status: session.status,
+          progress: progress,
+          status: status,
           videoUrl: session.videoUrl,
           stitchedVideos: session.stitchedVideos
         });
@@ -1464,6 +1555,53 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Error getting progress:', error);
     res.status(500).json({ error: 'Failed to get progress' });
+  }
+});
+
+// Reset stuck video generation status
+// Accepts X-Admin-Reset header for script-based resets (local only)
+router.post('/sessions/:id/reset-video-status', async (req, res) => {
+  const { id } = req.params;
+  const isAdminReset = req.headers['x-admin-reset'] === 'true';
+  const user = req.user as any;
+  
+  // Require auth unless it's an admin reset from localhost
+  if (!isAdminReset && !user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  const userId = user?.id || 'admin-reset';
+
+  try {
+    // Clear any stuck stitching progress
+    stitchingProgress.delete(id);
+    
+    // Reset session status in DB
+    try {
+      await prisma.$executeRaw`
+        UPDATE ugc_sessions 
+        SET status = 'draft',
+            video_progress = 0,
+            updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${user.id}
+      `;
+    } catch {
+      // Fallback to in-memory
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      const sessionIndex = userSessions.findIndex(s => s.id === id);
+      if (sessionIndex !== -1) {
+        userSessions[sessionIndex].status = 'draft';
+        userSessions[sessionIndex].videoProgress = 0;
+        userSessions[sessionIndex].updatedAt = new Date();
+        inMemoryUgcSessions.set(user.id, userSessions);
+      }
+    }
+    
+    console.log(`🔄 Reset video status for session ${id}`);
+    res.json({ success: true, message: 'Video status reset. You can now try generating again.' });
+  } catch (error) {
+    console.error('Error resetting video status:', error);
+    res.status(500).json({ error: 'Failed to reset video status' });
   }
 });
 

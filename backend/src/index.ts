@@ -16,6 +16,17 @@ import './config/passport';
 
 dotenv.config();
 
+// Global error handlers to prevent server crashes
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Don't exit - keep the server running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - keep the server running
+});
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 

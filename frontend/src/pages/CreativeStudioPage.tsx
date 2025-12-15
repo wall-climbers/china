@@ -226,26 +226,70 @@ const CreativeStudioPage = () => {
           if (response.data.videoUrl) {
             setVideoUrl(response.data.videoUrl);
           }
-          if (response.data.status === 'completed' && response.data.videoUrl) {
+          if (response.data.status === 'completed') {
             clearInterval(interval);
-            // Add new video to stitchedVideos array
-            setStitchedVideos(prev => {
-              // Check if this URL is already in the array
-              if (prev.some(v => v.url === response.data.videoUrl)) {
-                return prev;
+            
+            // Fetch fresh session data to get complete stitched_videos array
+            try {
+              const freshSessionResponse = await axios.get(`/api/ugc/sessions/${session.id}`, { withCredentials: true });
+              const freshSessionData = freshSessionResponse.data.session;
+              const videos = freshSessionData.stitched_videos || freshSessionData.stitchedVideos || [];
+              
+              if (videos.length > 0) {
+                // Update stitchedVideos with fresh data from DB
+                setStitchedVideos(videos.map((v: any, idx: number) => ({
+                  url: v.url,
+                  isNew: idx === 0, // Mark first (newest) as new
+                  createdAt: new Date(v.createdAt || v.created_at || Date.now()),
+                  sceneCount: v.sceneCount || v.scene_count || 0
+                })));
+                setSelectedStitchedVideoIndex(0);
+                
+                // Update videoUrl with the latest
+                if (freshSessionData.video_url || freshSessionData.videoUrl) {
+                  setVideoUrl(freshSessionData.video_url || freshSessionData.videoUrl);
+                }
+              } else if (response.data.videoUrl) {
+                // Fallback: use videoUrl from progress response if no stitched_videos
+                setStitchedVideos(prev => {
+                  if (prev.some(v => v.url === response.data.videoUrl)) {
+                    return prev;
+                  }
+                  const updatedPrev = prev.map(v => ({ ...v, isNew: false }));
+                  const newVideo: StitchedVideo = {
+                    url: response.data.videoUrl,
+                    isNew: true,
+                    createdAt: new Date(),
+                    sceneCount: scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length
+                  };
+                  return [newVideo, ...updatedPrev];
+                });
+                setSelectedStitchedVideoIndex(0);
               }
-              // Mark existing as not new, add new video at the beginning
-              const updatedPrev = prev.map(v => ({ ...v, isNew: false }));
-              const newVideo: StitchedVideo = {
-                url: response.data.videoUrl,
-                isNew: true,
-                createdAt: new Date(),
-                sceneCount: scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length
-              };
-              return [newVideo, ...updatedPrev];
-            });
-            setSelectedStitchedVideoIndex(0);
-            toast.success('Video stitched successfully!');
+              
+              toast.success('Video stitched successfully!');
+            } catch (fetchError) {
+              console.error('Error fetching fresh session:', fetchError);
+              // Fallback to using response data
+              if (response.data.videoUrl) {
+                setVideoUrl(response.data.videoUrl);
+                setStitchedVideos(prev => {
+                  if (prev.some(v => v.url === response.data.videoUrl)) {
+                    return prev;
+                  }
+                  const updatedPrev = prev.map(v => ({ ...v, isNew: false }));
+                  const newVideo: StitchedVideo = {
+                    url: response.data.videoUrl,
+                    isNew: true,
+                    createdAt: new Date(),
+                    sceneCount: scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length
+                  };
+                  return [newVideo, ...updatedPrev];
+                });
+                setSelectedStitchedVideoIndex(0);
+              }
+              toast.success('Video stitched successfully!');
+            }
           }
           if (response.data.status === 'failed') {
             clearInterval(interval);
@@ -1635,7 +1679,7 @@ const CreativeStudioPage = () => {
                           : 'bg-gray-200 text-gray-400'
                       }`}
                     >
-                      {isCompleted && !isCurrent ? <Check className="h-6 w-6" /> : <Icon className="h-5 w-5" />}
+                      <Icon className="h-5 w-5" />
                     </div>
                     <span className={`mt-2 text-sm ${
                       isCurrent ? 'text-gray-900 font-medium' : 
@@ -2550,6 +2594,24 @@ const CreativeStudioPage = () => {
                         </>
                       )}
                     </p>
+                    {/* Reset button for stuck generation */}
+                    <button
+                      onClick={async () => {
+                        try {
+                          await axios.post(`/api/ugc/sessions/${session?.id}/reset-video-status`, {}, { withCredentials: true });
+                          setVideoStatus('draft');
+                          setVideoProgress(0);
+                          setStitchingStage('');
+                          setStitchingMessage('');
+                          toast.success('Video generation reset. You can try again.');
+                        } catch (error) {
+                          toast.error('Failed to reset');
+                        }
+                      }}
+                      className="mt-4 text-xs text-gray-500 hover:text-red-600 underline transition-colors"
+                    >
+                      Stuck? Click to reset and try again
+                    </button>
                   </div>
                 </div>
               )}
