@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { ShoppingBag, LogOut, LayoutDashboard, Package, FileText } from 'lucide-react';
+import { ShoppingBag, LogOut, LayoutDashboard, Package, FileText, BarChart3 } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -37,6 +37,13 @@ const Navbar = () => {
             >
               <FileText className="h-5 w-5 mr-1" />
               Posts
+            </Link>
+            <Link
+              to="/admin"
+              className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-gray-100"
+            >
+              <BarChart3 className="h-5 w-5 mr-1" />
+              Admin
             </Link>
 
             {user && (

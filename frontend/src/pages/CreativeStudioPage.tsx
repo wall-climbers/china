@@ -20,8 +20,16 @@ interface Product {
 interface Scene {
   id: number;
   title: string;
-  prompt: string;
+  prompt: string;      // visuals
+  dialogue: string;
+  motion: string;
+  transitions: string;
   duration: number;
+  imageUrl?: string;       // generated scene image
+  generating?: boolean;    // loading state for image generation
+  videoUrl?: string;       // generated scene video
+  generatingVideo?: boolean; // loading state for video generation
+  included?: boolean;      // whether to include in final video
 }
 
 interface UgcSession {
@@ -89,6 +97,12 @@ const CreativeStudioPage = () => {
   // Step 3: Scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
   
+  // Generated Prompts (from LLM)
+  const [productPrompt, setProductPrompt] = useState<string>('');
+  const [productBreakdown, setProductBreakdown] = useState<string>('');
+  const [characterPrompt, setCharacterPrompt] = useState<string>('');
+  const [videoAdOutput, setVideoAdOutput] = useState<any>(null);
+  
   // Step 4: Video
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -154,11 +168,34 @@ const CreativeStudioPage = () => {
     }
   };
 
+  // Normalize session data to handle both camelCase and snake_case
+  const normalizeSession = (s: any): UgcSession => ({
+    id: s.id,
+    productId: s.productId || s.product_id,
+    targetDemographic: s.targetDemographic || s.target_demographic,
+    productPrompt: s.productPrompt || s.product_prompt || '',
+    characterPrompt: s.characterPrompt || s.character_prompt || '',
+    scenes: s.scenes || [],
+    generatedCharacters: s.generatedCharacters || s.generated_characters || [],
+    selectedCharacter: s.selectedCharacter || s.selected_character || '',
+    generatedProductImages: s.generatedProductImages || s.generated_product_images || [],
+    selectedProductImage: s.selectedProductImage || s.selected_product_image || '',
+    editedScenes: s.editedScenes || s.edited_scenes || [],
+    videoUrl: s.videoUrl || s.video_url || '',
+    videoProgress: s.videoProgress || s.video_progress || 0,
+    currentStep: s.currentStep ?? s.current_step ?? 0,
+    status: s.status || 'draft',
+    createdAt: s.createdAt || s.created_at || '',
+    updatedAt: s.updatedAt || s.updated_at || ''
+  });
+
   const loadSessions = async () => {
     setLoading(true);
     try {
       const sessionsResponse = await axios.get('/api/ugc/sessions', { withCredentials: true });
-      const productSessions = sessionsResponse.data.sessions.filter(
+      // Normalize and filter sessions for this product
+      const normalizedSessions = sessionsResponse.data.sessions.map(normalizeSession);
+      const productSessions = normalizedSessions.filter(
         (s: UgcSession) => s.productId === productId
       );
       setAllSessions(productSessions);
@@ -190,36 +227,73 @@ const CreativeStudioPage = () => {
     }
   };
 
-  const loadSessionData = (sessionData: UgcSession) => {
-    setSession(sessionData);
-    setCurrentStep(sessionData.currentStep || 0);
-    if (sessionData.scenes) setScenes(sessionData.editedScenes || sessionData.scenes);
-    if (sessionData.generatedCharacters) setCharacters(sessionData.generatedCharacters);
-    if (sessionData.selectedCharacter) setSelectedCharacter(sessionData.selectedCharacter);
-    if (sessionData.generatedProductImages) setProductImages(sessionData.generatedProductImages);
-    if (sessionData.selectedProductImage) setSelectedProductImage(sessionData.selectedProductImage);
-    if (sessionData.targetDemographic) setDemographics(sessionData.targetDemographic);
-    if (sessionData.videoUrl) setVideoUrl(sessionData.videoUrl);
-    if (sessionData.videoProgress) setVideoProgress(sessionData.videoProgress);
-    if (sessionData.status) setVideoStatus(sessionData.status);
+  const loadSessionData = (sessionData: any) => {
+    // Normalize the session data first
+    const normalized = normalizeSession(sessionData);
+    setSession(normalized);
+    
+    // Set all state from normalized data
+    setCurrentStep(normalized.currentStep);
+    
+    // Merge scenes: use edited scenes but fill in missing fields from original
+    const originalScenes = normalized.scenes || [];
+    const editedScenes = normalized.editedScenes || [];
+    
+    if (editedScenes.length > 0) {
+      // Merge edited scenes with original to preserve dialogue, motion, transitions
+      const mergedScenes = editedScenes.map((edited: Scene, index: number) => ({
+        // Start with original scene data (has dialogue, motion, transitions from LLM)
+        ...(originalScenes[index] || {}),
+        // Override with edited values (user's changes to prompt, etc.)
+        ...edited,
+      }));
+      setScenes(mergedScenes);
+    } else if (originalScenes.length > 0) {
+      setScenes(originalScenes);
+    }
+    if (normalized.generatedCharacters?.length > 0) setCharacters(normalized.generatedCharacters);
+    if (normalized.selectedCharacter) setSelectedCharacter(normalized.selectedCharacter);
+    if (normalized.generatedProductImages?.length > 0) setProductImages(normalized.generatedProductImages);
+    if (normalized.selectedProductImage) setSelectedProductImage(normalized.selectedProductImage);
+    if (normalized.targetDemographic) setDemographics(normalized.targetDemographic);
+    if (normalized.productPrompt) setProductPrompt(normalized.productPrompt);
+    
+    // Handle additional fields that may not be in the interface
+    const prodBreakdown = sessionData.productBreakdown || sessionData.product_breakdown;
+    if (prodBreakdown) setProductBreakdown(prodBreakdown);
+    const vidAdOutput = sessionData.videoAdOutput || sessionData.video_ad_output;
+    if (vidAdOutput) setVideoAdOutput(vidAdOutput);
+    if (normalized.characterPrompt) setCharacterPrompt(normalized.characterPrompt);
+    if (normalized.videoUrl) setVideoUrl(normalized.videoUrl);
+    if (normalized.videoProgress) setVideoProgress(normalized.videoProgress);
+    if (normalized.status) setVideoStatus(normalized.status);
+    
     setShowSessionPicker(false);
     
+    // Update furthest step based on loaded progress
+    setFurthestStep(normalized.currentStep);
+    
     // Update URL with session ID
-    setSearchParams({ session: sessionData.id });
+    setSearchParams({ session: normalized.id });
   };
 
   const createNewSession = async () => {
     try {
       const response = await axios.post('/api/ugc/sessions', { productId }, { withCredentials: true });
-      const newSession = response.data.session;
+      const newSession = normalizeSession(response.data.session);
       setSession(newSession);
       setAllSessions(prev => [newSession, ...prev]);
+      setSearchParams({ session: newSession.id });
       setCurrentStep(0);
       setCharacters([]);
       setSelectedCharacter(null);
       setProductImages([]);
       setSelectedProductImage(null);
       setScenes([]);
+      setProductPrompt('');
+      setProductBreakdown('');
+      setCharacterPrompt('');
+      setVideoAdOutput(null);
       setVideoUrl(null);
       setVideoProgress(0);
       setVideoStatus('draft');
@@ -238,23 +312,48 @@ const CreativeStudioPage = () => {
     }
   };
 
+  // Track the furthest step reached (for detecting if going back will lose progress)
+  const [furthestStep, setFurthestStep] = useState(0);
+
+  // Update furthest step when progressing
+  useEffect(() => {
+    if (currentStep > furthestStep) {
+      setFurthestStep(currentStep);
+    }
+  }, [currentStep]);
+
   const handleStepClick = (stepId: number) => {
-    // Can only go to completed steps or current step
-    if (stepId > currentStep) return;
+    // Can navigate to any step up to and including furthestStep
+    if (stepId > furthestStep) return;
     if (stepId === currentStep) return;
     
-    // Going back requires confirmation
-    setPendingStep(stepId);
-    setShowBackConfirm(true);
+    // Just navigate - no warning needed for viewing steps
+    setCurrentStep(stepId);
   };
+
+  // Show warning before making edits that would invalidate subsequent steps
+  const confirmEditInPreviousStep = (stepId: number, onConfirm: () => void) => {
+    if (stepId < furthestStep) {
+      // User has progressed beyond this step, show warning before editing
+      setPendingStep(stepId);
+      setShowBackConfirm(true);
+      // Store the callback for when they confirm
+      setPendingEditCallback(() => onConfirm);
+    } else {
+      // No progress to lose, just execute
+      onConfirm();
+    }
+  };
+
+  const [pendingEditCallback, setPendingEditCallback] = useState<(() => void) | null>(null);
 
   const confirmGoBack = async () => {
     if (pendingStep === null || !session) return;
     
-    // Reset subsequent data when going back
+    // Reset subsequent data when editing a previous step
     try {
       if (pendingStep <= 0) {
-        // Going back to step 0 - clear everything
+        // Editing step 0 - clear everything
         setCharacters([]);
         setSelectedCharacter(null);
         setProductImages([]);
@@ -264,7 +363,7 @@ const CreativeStudioPage = () => {
         setVideoProgress(0);
         setVideoStatus('draft');
       } else if (pendingStep <= 1) {
-        // Going back to step 1 - clear from step 2 onwards
+        // Editing step 1 - clear from step 2 onwards
         setProductImages([]);
         setSelectedProductImage(null);
         setScenes([]);
@@ -272,27 +371,35 @@ const CreativeStudioPage = () => {
         setVideoProgress(0);
         setVideoStatus('draft');
       } else if (pendingStep <= 2) {
-        // Going back to step 2 - clear from step 3 onwards
+        // Editing step 2 - clear from step 3 onwards
         setVideoUrl(null);
         setVideoProgress(0);
         setVideoStatus('draft');
       } else if (pendingStep <= 3) {
-        // Going back to step 3 - clear video
+        // Editing step 3 - clear video
         setVideoUrl(null);
         setVideoProgress(0);
         setVideoStatus('draft');
       }
 
-      setCurrentStep(pendingStep);
+      // Reset furthest step to current edit point
+      setFurthestStep(pendingStep);
+      
+      // Execute the pending edit callback if there is one
+      if (pendingEditCallback) {
+        pendingEditCallback();
+        setPendingEditCallback(null);
+      }
+
       setShowBackConfirm(false);
       setPendingStep(null);
-      toast.success('You can now edit this step. Subsequent steps will need to be regenerated.');
+      toast.success('Progress reset. You can now make changes.');
     } catch (error) {
-      console.error('Error going back:', error);
+      console.error('Error confirming edit:', error);
     }
   };
 
-  const handleStep0Submit = async () => {
+  const doStep0Submit = async () => {
     if (!session) return;
     setGenerating(true);
     try {
@@ -301,7 +408,12 @@ const CreativeStudioPage = () => {
         { targetDemographic: demographics },
         { withCredentials: true }
       );
-      setScenes(response.data.scenes);
+      // Store all LLM-generated prompts
+      setProductPrompt(response.data.productPrompt || '');
+      setProductBreakdown(response.data.productBreakdown || '');
+      setCharacterPrompt(response.data.characterPrompt || '');
+      setScenes(response.data.scenes || []);
+      setVideoAdOutput(response.data.videoAdOutput || null);
       setCurrentStep(1);
       toast.success('Audience profile created!');
     } catch (error) {
@@ -312,7 +424,16 @@ const CreativeStudioPage = () => {
     }
   };
 
-  const handleGenerateCharacters = async () => {
+  // Wrapper that checks if editing step 0 would lose progress
+  const handleStep0Submit = () => {
+    if (furthestStep > 0) {
+      confirmEditInPreviousStep(0, doStep0Submit);
+    } else {
+      doStep0Submit();
+    }
+  };
+
+  const doGenerateCharacters = async () => {
     if (!session) return;
     setGenerating(true);
     try {
@@ -331,22 +452,36 @@ const CreativeStudioPage = () => {
     }
   };
 
-  const handleSelectCharacter = async (url: string) => {
-    if (!session) return;
-    setSelectedCharacter(url);
-    try {
-      await axios.put(
-        `/api/ugc/sessions/${session.id}/select-character`,
-        { characterUrl: url },
-        { withCredentials: true }
-      );
-      setCurrentStep(2);
-    } catch (error) {
-      console.error('Error selecting character:', error);
+  // Wrapper that checks if regenerating characters would lose progress
+  const handleGenerateCharacters = () => {
+    if (furthestStep > 1) {
+      confirmEditInPreviousStep(1, doGenerateCharacters);
+    } else {
+      doGenerateCharacters();
     }
   };
 
-  const handleGenerateProductImages = async () => {
+  const handleSelectCharacter = (url: string) => {
+    setSelectedCharacter(url);
+  };
+
+  const handleContinueFromCharacter = async () => {
+    if (!session || !selectedCharacter) return;
+    try {
+      await axios.put(
+        `/api/ugc/sessions/${session.id}/select-character`,
+        { characterUrl: selectedCharacter },
+        { withCredentials: true }
+      );
+      setCurrentStep(2);
+      setFurthestStep(Math.max(furthestStep, 2));
+    } catch (error) {
+      console.error('Error saving character selection:', error);
+      toast.error('Failed to save character selection');
+    }
+  };
+
+  const doGenerateProductImages = async () => {
     if (!session) return;
     setGenerating(true);
     try {
@@ -365,27 +500,42 @@ const CreativeStudioPage = () => {
     }
   };
 
-  const handleSelectProductImage = async (url: string) => {
-    if (!session) return;
-    setSelectedProductImage(url);
-    try {
-      await axios.put(
-        `/api/ugc/sessions/${session.id}/select-product-image`,
-        { imageUrl: url },
-        { withCredentials: true }
-      );
-      setCurrentStep(3);
-    } catch (error) {
-      console.error('Error selecting product image:', error);
+  // Wrapper that checks if regenerating product images would lose progress
+  const handleGenerateProductImages = () => {
+    if (furthestStep > 2) {
+      confirmEditInPreviousStep(2, doGenerateProductImages);
+    } else {
+      doGenerateProductImages();
     }
   };
 
-  const handleUpdateScenes = async () => {
+  const handleSelectProductImage = (url: string) => {
+    setSelectedProductImage(url);
+  };
+
+  const handleContinueFromProductImage = async () => {
+    if (!session || !selectedProductImage) return;
+    try {
+      await axios.put(
+        `/api/ugc/sessions/${session.id}/select-product-image`,
+        { imageUrl: selectedProductImage },
+        { withCredentials: true }
+      );
+      setCurrentStep(3);
+      setFurthestStep(Math.max(furthestStep, 3));
+    } catch (error) {
+      console.error('Error saving product image selection:', error);
+      toast.error('Failed to save product image selection');
+    }
+  };
+
+  const handleUpdateScenes = async (updatedScenes?: Scene[]) => {
     if (!session) return;
+    const scenesToSave = updatedScenes || scenes;
     try {
       await axios.put(
         `/api/ugc/sessions/${session.id}/scenes`,
-        { scenes },
+        { scenes: scenesToSave },
         { withCredentials: true }
       );
     } catch (error) {
@@ -424,6 +574,152 @@ const CreativeStudioPage = () => {
     const newScenes = [...scenes];
     newScenes[index] = { ...newScenes[index], prompt };
     setScenes(newScenes);
+  };
+
+  const updateSceneDialogue = (index: number, dialogue: string) => {
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], dialogue };
+    setScenes(newScenes);
+  };
+
+  const updateSceneMotion = (index: number, motion: string) => {
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], motion };
+    setScenes(newScenes);
+  };
+
+  const updateSceneTransitions = (index: number, transitions: string) => {
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], transitions };
+    setScenes(newScenes);
+  };
+
+  const toggleSceneIncluded = (index: number) => {
+    const newScenes = [...scenes];
+    // Default to true if undefined, then toggle
+    const currentValue = newScenes[index].included !== false;
+    newScenes[index] = { ...newScenes[index], included: !currentValue };
+    setScenes(newScenes);
+    handleUpdateScenes();
+  };
+
+  // Auto-resize textarea helper
+  const autoResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.target.style.height = 'auto';
+    e.target.style.height = e.target.scrollHeight + 'px';
+  };
+
+  // Auto-resize all textareas when scenes load
+  useEffect(() => {
+    if (scenes.length > 0 && currentStep === 3) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        const textareas = document.querySelectorAll('.scene-textarea');
+        textareas.forEach((textarea) => {
+          const el = textarea as HTMLTextAreaElement;
+          el.style.height = 'auto';
+          el.style.height = el.scrollHeight + 'px';
+        });
+      }, 100);
+    }
+  }, [scenes, currentStep]);
+
+  const handleGenerateSceneImage = async (index: number) => {
+    if (!session) return;
+    
+    const scene = scenes[index];
+    if (!scene.prompt) {
+      toast.error('Please add a visuals prompt for this scene');
+      return;
+    }
+
+    // Set generating state for this scene
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], generating: true };
+    setScenes(newScenes);
+
+    try {
+      const response = await axios.post(
+        `/api/ugc/sessions/${session.id}/generate-scene-image`,
+        { 
+          sceneIndex: index,
+          visualsPrompt: scene.prompt 
+        },
+        { withCredentials: true }
+      );
+
+      // Update scene with generated image
+      const updatedScenes = [...scenes];
+      updatedScenes[index] = { 
+        ...updatedScenes[index], 
+        imageUrl: response.data.imageUrl,
+        generating: false 
+      };
+      setScenes(updatedScenes);
+      
+      // Save to backend (pass updated scenes to avoid stale closure)
+      await handleUpdateScenes(updatedScenes);
+      toast.success(`Scene ${index + 1} image generated!`);
+    } catch (error) {
+      console.error('Error generating scene image:', error);
+      toast.error('Failed to generate scene image');
+      
+      // Reset generating state
+      const updatedScenes = [...scenes];
+      updatedScenes[index] = { ...updatedScenes[index], generating: false };
+      setScenes(updatedScenes);
+    }
+  };
+
+  const handleGenerateSceneVideo = async (index: number) => {
+    if (!session) return;
+    
+    const scene = scenes[index];
+    if (!scene.imageUrl) {
+      toast.error('Please generate a scene image first');
+      return;
+    }
+
+    // Set generating state for video
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], generatingVideo: true };
+    setScenes(newScenes);
+
+    try {
+      // Build a comprehensive prompt from scene data
+      const videoPrompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${scene.dialogue || ''}"`;
+      
+      const response = await axios.post(
+        `/api/ugc/sessions/${session.id}/generate-scene-video`,
+        { 
+          sceneIndex: index,
+          prompt: videoPrompt,
+          imageUrl: scene.imageUrl
+        },
+        { withCredentials: true }
+      );
+
+      // Update scene with generated video
+      const updatedScenes = [...scenes];
+      updatedScenes[index] = { 
+        ...updatedScenes[index], 
+        videoUrl: response.data.videoUrl,
+        generatingVideo: false 
+      };
+      setScenes(updatedScenes);
+      
+      // Save to backend (pass updated scenes to avoid stale closure)
+      await handleUpdateScenes(updatedScenes);
+      toast.success(`Scene ${index + 1} video generated!`);
+    } catch (error) {
+      console.error('Error generating scene video:', error);
+      toast.error('Failed to generate scene video');
+      
+      // Reset generating state
+      const updatedScenes = [...scenes];
+      updatedScenes[index] = { ...updatedScenes[index], generatingVideo: false };
+      setScenes(updatedScenes);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -555,17 +851,18 @@ const CreativeStudioPage = () => {
           <div className="bg-gray-800 rounded-2xl p-6 max-w-md w-full">
             <div className="flex items-center gap-3 text-yellow-400 mb-4">
               <AlertTriangle className="h-6 w-6" />
-              <h3 className="text-lg font-semibold">Go Back to Edit?</h3>
+              <h3 className="text-lg font-semibold">Reset Progress?</h3>
             </div>
             <p className="text-gray-300 mb-6">
-              Going back to <span className="text-white font-medium">{STEPS[pendingStep || 0]?.name}</span> will 
-              require you to regenerate all subsequent steps. Your progress from that point onwards will be reset.
+              Making changes to <span className="text-white font-medium">{STEPS[pendingStep || 0]?.name}</span> will 
+              reset all subsequent steps. You'll need to regenerate from this point onwards.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => {
                   setShowBackConfirm(false);
                   setPendingStep(null);
+                  setPendingEditCallback(null);
                 }}
                 className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all"
               >
@@ -575,7 +872,7 @@ const CreativeStudioPage = () => {
                 onClick={confirmGoBack}
                 className="flex-1 px-4 py-2 bg-yellow-500 text-black font-medium rounded-lg hover:bg-yellow-400 transition-all"
               >
-                Yes, Go Back
+                Yes, Continue
               </button>
             </div>
           </div>
@@ -611,9 +908,9 @@ const CreativeStudioPage = () => {
           <div className="flex items-center justify-between">
             {STEPS.map((step, index) => {
               const Icon = step.icon;
-              const isCompleted = currentStep > step.id;
+              const isCompleted = furthestStep > step.id;
               const isCurrent = currentStep === step.id;
-              const isClickable = step.id < currentStep;
+              const isClickable = step.id <= furthestStep && step.id !== currentStep;
               
               return (
                 <div key={step.id} className="flex items-center">
@@ -626,28 +923,28 @@ const CreativeStudioPage = () => {
                   >
                     <div
                       className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                        isCompleted
-                          ? 'bg-green-500 text-white hover:bg-green-400'
-                          : isCurrent
+                        isCurrent
                           ? 'bg-purple-500 text-white ring-4 ring-purple-500/30'
+                          : isCompleted
+                          ? 'bg-green-500 text-white hover:bg-green-400'
                           : 'bg-gray-700 text-gray-400'
                       }`}
                     >
-                      {isCompleted ? <Check className="h-6 w-6" /> : <Icon className="h-5 w-5" />}
+                      {isCompleted && !isCurrent ? <Check className="h-6 w-6" /> : <Icon className="h-5 w-5" />}
                     </div>
                     <span className={`mt-2 text-sm ${
                       isCurrent ? 'text-white font-medium' : 
-                      isClickable ? 'text-green-400' : 'text-gray-500'
+                      isCompleted ? 'text-green-400' : 'text-gray-500'
                     }`}>
                       {step.name}
                     </span>
                     {isClickable && (
-                      <span className="text-xs text-gray-500 mt-0.5">Click to edit</span>
+                      <span className="text-xs text-gray-500 mt-0.5">Click to view</span>
                     )}
                   </button>
                   {index < STEPS.length - 1 && (
                     <div className={`w-full h-1 mx-2 rounded ${
-                      currentStep > step.id ? 'bg-green-500' : 'bg-gray-700'
+                      furthestStep > step.id ? 'bg-green-500' : 'bg-gray-700'
                     }`} style={{ width: '60px' }} />
                   )}
                 </div>
@@ -783,6 +1080,71 @@ const CreativeStudioPage = () => {
                 <p className="text-gray-400">Select a character that best represents your brand ambassador.</p>
               </div>
 
+              {/* Generated Prompts Display */}
+              {(productPrompt || characterPrompt || productBreakdown || videoAdOutput) && (
+                <div className="space-y-4">
+                  {/* Product Breakdown (String) */}
+                  {productBreakdown && (
+                    <div className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-xl p-5 border border-purple-500/30">
+                      <h4 className="text-sm font-semibold text-purple-300 mb-4 flex items-center gap-2">
+                        📊 Product Analysis (AI Generated)
+                      </h4>
+                      <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {productBreakdown}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Customer Avatar from Video Ad Output */}
+                  {videoAdOutput?.customer_avatar && (
+                    <div className="bg-gradient-to-r from-pink-900/30 to-orange-900/30 rounded-xl p-5 border border-pink-500/30">
+                      <h4 className="text-sm font-semibold text-pink-300 mb-4 flex items-center gap-2">
+                        👤 Customer Avatar
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <h5 className="text-pink-400 font-medium mb-1">{videoAdOutput.customer_avatar.name}</h5>
+                          <p className="text-gray-400 text-xs mb-2">{videoAdOutput.customer_avatar.demographics}</p>
+                          <p className="text-gray-300">{videoAdOutput.customer_avatar.backstory}</p>
+                        </div>
+                        <div>
+                          <h5 className="text-orange-400 font-medium mb-1">Visual Description</h5>
+                          <p className="text-gray-300 text-xs">{videoAdOutput.customer_avatar.visual_description}</p>
+                        </div>
+                      </div>
+                      {videoAdOutput.video_ad_script?.overall_tone && (
+                        <div className="mt-3 pt-3 border-t border-gray-600">
+                          <span className="text-xs text-gray-400">Ad Tone: </span>
+                          <span className="text-xs text-purple-300 font-medium">{videoAdOutput.video_ad_script.overall_tone}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Product & Character Prompts */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {productPrompt && (
+                      <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
+                        <h4 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
+                          <Wand2 className="h-4 w-4" />
+                          Marketing Prompt
+                        </h4>
+                        <p className="text-gray-300 text-sm leading-relaxed">{productPrompt}</p>
+                      </div>
+                    )}
+                    {characterPrompt && (
+                      <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
+                        <h4 className="text-sm font-medium text-pink-400 mb-2 flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          Character Prompt
+                        </h4>
+                        <p className="text-gray-300 text-sm leading-relaxed">{characterPrompt}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {characters.length === 0 ? (
                 <div className="text-center py-12">
                   <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
@@ -836,6 +1198,14 @@ const CreativeStudioPage = () => {
                     >
                       <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
                       Regenerate
+                    </button>
+                    <button
+                      onClick={handleContinueFromCharacter}
+                      disabled={!selectedCharacter}
+                      className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      Continue
+                      <ArrowRight className="h-5 w-5" />
                     </button>
                   </div>
                 </>
@@ -905,6 +1275,14 @@ const CreativeStudioPage = () => {
                       <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
                       Regenerate
                     </button>
+                    <button
+                      onClick={handleContinueFromProductImage}
+                      disabled={!selectedProductImage}
+                      className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-lg font-medium hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      Continue
+                      <ArrowRight className="h-5 w-5" />
+                    </button>
                   </div>
                 </>
               )}
@@ -919,38 +1297,14 @@ const CreativeStudioPage = () => {
                 <p className="text-gray-400">Customize and reorder the scenes for your video.</p>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {scenes.map((scene, index) => (
                   <div
                     key={scene.id}
-                    className="bg-gray-700/50 rounded-xl p-4 border border-gray-600"
+                    className="bg-gray-700/50 rounded-xl p-5 border border-gray-600"
                   >
                     <div className="flex items-start gap-4">
-                      <div className="flex flex-col gap-1">
-                        <button
-                          onClick={() => moveScene(index, 'up')}
-                          disabled={index === 0}
-                          className="p-1 text-gray-400 hover:text-white disabled:opacity-30"
-                        >
-                          <GripVertical className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="font-medium text-white">
-                            Scene {index + 1}: {scene.title}
-                          </h3>
-                          <span className="text-sm text-gray-400">{scene.duration}s</span>
-                        </div>
-                        <textarea
-                          value={scene.prompt}
-                          onChange={(e) => updateScenePrompt(index, e.target.value)}
-                          onBlur={handleUpdateScenes}
-                          className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none resize-none"
-                          rows={2}
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1 pt-1">
                         <button
                           onClick={() => moveScene(index, 'up')}
                           disabled={index === 0}
@@ -965,6 +1319,172 @@ const CreativeStudioPage = () => {
                         >
                           ↓
                         </button>
+                      </div>
+                      <div className={`flex-1 space-y-4 ${scene.included === false ? 'opacity-50' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            {/* Include Toggle */}
+                            <button
+                              onClick={() => toggleSceneIncluded(index)}
+                              className={`relative w-12 h-6 rounded-full transition-colors ${
+                                scene.included !== false ? 'bg-purple-500' : 'bg-gray-600'
+                              }`}
+                            >
+                              <span
+                                className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                                  scene.included !== false ? 'left-7' : 'left-1'
+                                }`}
+                              />
+                            </button>
+                            <h3 className="font-semibold text-white text-lg">
+                              Scene {index + 1}: {scene.title}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {scene.included === false && (
+                              <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">Excluded</span>
+                            )}
+                            <span className="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">{scene.duration}s</span>
+                          </div>
+                        </div>
+                        
+                        {/* Visuals */}
+                        <div>
+                          <label className="block text-sm font-medium text-purple-400 mb-1.5">
+                            Visuals
+                          </label>
+                          <textarea
+                            value={scene.prompt}
+                            onChange={(e) => { updateScenePrompt(index, e.target.value); autoResize(e); }}
+                            onBlur={handleUpdateScenes}
+                            onFocus={(e) => autoResize(e as any)}
+                            className="scene-textarea w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none resize-none overflow-hidden"
+                            style={{ minHeight: '60px' }}
+                          />
+                        </div>
+
+                        {/* Dialogue */}
+                        <div>
+                          <label className="block text-sm font-medium text-pink-400 mb-1.5">
+                            Dialogue
+                          </label>
+                          <textarea
+                            value={scene.dialogue || ''}
+                            onChange={(e) => { updateSceneDialogue(index, e.target.value); autoResize(e); }}
+                            onBlur={handleUpdateScenes}
+                            onFocus={(e) => autoResize(e as any)}
+                            className="scene-textarea w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none resize-none overflow-hidden"
+                            style={{ minHeight: '60px' }}
+                            placeholder="Enter dialogue for this scene..."
+                          />
+                        </div>
+
+                        {/* Motion & Transitions */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-blue-400 mb-1.5">
+                              Motion
+                            </label>
+                            <input
+                              type="text"
+                              value={scene.motion || ''}
+                              onChange={(e) => updateSceneMotion(index, e.target.value)}
+                              onBlur={handleUpdateScenes}
+                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                              placeholder="Camera movement..."
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-orange-400 mb-1.5">
+                              Transitions
+                            </label>
+                            <input
+                              type="text"
+                              value={scene.transitions || ''}
+                              onChange={(e) => updateSceneTransitions(index, e.target.value)}
+                              onBlur={handleUpdateScenes}
+                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
+                              placeholder="Transition type..."
+                            />
+                          </div>
+                        </div>
+
+                        {/* Scene Image & Generate Button */}
+                        <div className="pt-4 border-t border-gray-600">
+                          <div className="flex items-start gap-4">
+                            {/* Generated Image */}
+                            {scene.imageUrl && (
+                              <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 border border-gray-600">
+                                <img 
+                                  src={scene.imageUrl} 
+                                  alt={`Scene ${index + 1}`} 
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+                            
+                            {/* Generate Buttons */}
+                            <div className="flex-1 space-y-3">
+                              {/* Generate Scene Image Button */}
+                              <div>
+                                <button
+                                  onClick={() => handleGenerateSceneImage(index)}
+                                  disabled={scene.generating || !scene.prompt}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                  {scene.generating ? (
+                                    <>
+                                      <Loader className="h-4 w-4 animate-spin" />
+                                      Generating Image...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Wand2 className="h-4 w-4" />
+                                      {scene.imageUrl ? 'Regenerate Image' : 'Generate Image'}
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              
+                              {/* Generate Scene Video Button - only enabled after image exists */}
+                              <div>
+                                <button
+                                  onClick={() => handleGenerateSceneVideo(index)}
+                                  disabled={!scene.imageUrl || scene.generatingVideo}
+                                  className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:from-blue-600 hover:to-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                  {scene.generatingVideo ? (
+                                    <>
+                                      <Loader className="h-4 w-4 animate-spin" />
+                                      Generating Video...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Film className="h-4 w-4" />
+                                      {scene.videoUrl ? 'Regenerate Video' : 'Generate Video'}
+                                    </>
+                                  )}
+                                </button>
+                                {!scene.imageUrl && (
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Generate scene image first
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Show video preview if generated */}
+                              {scene.videoUrl && (
+                                <div className="mt-2">
+                                  <video 
+                                    src={scene.videoUrl} 
+                                    controls 
+                                    className="w-full max-w-xs rounded-lg border border-gray-600"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>

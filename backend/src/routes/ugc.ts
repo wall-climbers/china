@@ -1,6 +1,8 @@
 import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { llmService } from '../services/llm';
+import { uploadImageToS3 } from '../services/s3';
 
 const router = express.Router();
 
@@ -142,48 +144,19 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // Generate prompts based on demographics and product
-    const { ageGroup, gender, interests, tone } = targetDemographic;
+    // Generate prompts using LLM (Gemini)
+    console.log('🤖 Generating creative prompts with Gemini LLM...');
     
-    const productPrompt = `A ${product.title} - ${product.description.substring(0, 200)}...`;
+    const { productPrompt, productBreakdown, characterPrompt, scenes, videoAdOutput } = await llmService.generateProductPrompt(
+      {
+        title: product.title,
+        description: product.description,
+        price: product.price
+      },
+      targetDemographic
+    );
     
-    const characterPrompt = `A ${gender !== 'All' ? gender.toLowerCase() : 'person'} aged ${ageGroup}, 
-interested in ${interests.join(', ')}, with a ${tone.toLowerCase()} demeanor. 
-They are the perfect ambassador for ${product.title}.`;
-
-    // Generate scene prompts
-    const scenes = [
-      {
-        id: 1,
-        title: 'Introduction',
-        prompt: `Opening shot: ${characterPrompt} discovers the ${product.title} for the first time. Expression of curiosity and interest.`,
-        duration: 3
-      },
-      {
-        id: 2,
-        title: 'Product Showcase',
-        prompt: `Close-up of ${product.title} highlighting its key features. Clean, professional lighting.`,
-        duration: 4
-      },
-      {
-        id: 3,
-        title: 'Usage Demo',
-        prompt: `${characterPrompt} demonstrating how to use ${product.title}. Natural, authentic interaction.`,
-        duration: 5
-      },
-      {
-        id: 4,
-        title: 'Benefits Highlight',
-        prompt: `Split screen showing before/after or key benefits of ${product.title}. ${tone} messaging style.`,
-        duration: 4
-      },
-      {
-        id: 5,
-        title: 'Call to Action',
-        prompt: `${characterPrompt} enthusiastically recommending ${product.title}. End with product logo and purchase prompt.`,
-        duration: 3
-      }
-    ];
+    console.log('✅ LLM prompts generated successfully');
 
     // Update session
     try {
@@ -205,8 +178,10 @@ They are the perfect ambassador for ${product.title}.`;
           ...userSessions[sessionIndex],
           targetDemographic,
           productPrompt,
+          productBreakdown,
           characterPrompt,
           scenes,
+          videoAdOutput,
           currentStep: 1,
           updatedAt: new Date()
         };
@@ -217,8 +192,10 @@ They are the perfect ambassador for ${product.title}.`;
     res.json({
       success: true,
       productPrompt,
+      productBreakdown,
       characterPrompt,
-      scenes
+      scenes,
+      videoAdOutput
     });
   } catch (error) {
     console.error('Error updating demographics:', error);
@@ -232,13 +209,113 @@ router.post('/sessions/:id/generate-characters', isAuthenticated, async (req, re
   const user = req.user as any;
 
   try {
-    // Mock character generation - in production, this would call an AI image generation API
-    const generatedCharacters = [
-      { id: 1, url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', selected: false },
-      { id: 2, url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', selected: false },
-      { id: 3, url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400', selected: false },
-      { id: 4, url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400', selected: false }
+    // Get session to retrieve customer avatar/character prompt
+    let session: any = null;
+    try {
+      const sessions = await prisma.$queryRaw`
+        SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      ` as any[];
+      session = sessions[0];
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      session = userSessions.find(s => s.id === id);
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Get customer avatar from session (either from videoAdOutput or characterPrompt)
+    const videoAdOutput = session.videoAdOutput || session.video_ad_output;
+    const characterPrompt = session.characterPrompt || session.character_prompt;
+    
+    // Extract full customer avatar details
+    let customerAvatar: {
+      name?: string;
+      visualDescription: string;
+      demographics?: string;
+      backstory?: string;
+    } | null = null;
+
+    if (videoAdOutput?.customer_avatar) {
+      const avatar = videoAdOutput.customer_avatar;
+      customerAvatar = {
+        name: avatar.name,
+        visualDescription: avatar.visual_description || '',
+        demographics: avatar.demographics,
+        backstory: avatar.backstory
+      };
+    } else if (characterPrompt) {
+      customerAvatar = { visualDescription: characterPrompt };
+    }
+
+    if (!customerAvatar || !customerAvatar.visualDescription) {
+      return res.status(400).json({ error: 'No character description available. Please complete the demographics step first.' });
+    }
+
+    console.log('🎨 Generating character images from customer avatar...');
+    console.log(`   Name: ${customerAvatar.name || 'N/A'}`);
+    console.log(`   Demographics: ${customerAvatar.demographics || 'N/A'}`);
+    console.log(`   Visual description: ${customerAvatar.visualDescription.substring(0, 100)}...`);
+
+    // Generate multiple character variations using AI
+    const generatedCharacters: { id: number; url: string; selected: boolean; generating?: boolean }[] = [];
+    const numberOfVariations = 4;
+
+    // Generate images in parallel with slight variations
+    const imagePromises = [];
+    const variations = [
+      'confident expression, direct eye contact',
+      'friendly smile, approachable pose',
+      'thoughtful expression, slight side angle',
+      'energetic expression, dynamic pose'
     ];
+    
+    for (let i = 0; i < numberOfVariations; i++) {
+      // Create a variation of the customer avatar with enhanced visual description
+      const avatarVariation = {
+        ...customerAvatar,
+        visualDescription: `${customerAvatar.visualDescription}. ${variations[i]}`
+      };
+      imagePromises.push(llmService.generateCharacterImage(avatarVariation));
+    }
+
+    const results = await Promise.all(imagePromises);
+
+    // Process results and upload to S3
+    for (let i = 0; i < results.length; i++) {
+      const imageResult = results[i];
+      if (imageResult) {
+        try {
+          // Convert base64 to buffer and upload to S3
+          const imageBuffer = Buffer.from(imageResult.base64, 'base64');
+          const extension = imageResult.mimeType.split('/')[1] || 'png';
+          const fileName = `character-${id}-${i + 1}-${Date.now()}.${extension}`;
+          
+          const s3Url = await uploadImageToS3(imageBuffer, fileName, imageResult.mimeType);
+          
+          generatedCharacters.push({
+            id: i + 1,
+            url: s3Url,
+            selected: false
+          });
+          console.log(`✅ Character ${i + 1} uploaded: ${s3Url}`);
+        } catch (uploadError) {
+          console.error(`❌ Failed to upload character ${i + 1}:`, uploadError);
+        }
+      }
+    }
+
+    // If no AI images were generated, fallback to placeholder images
+    if (generatedCharacters.length === 0) {
+      console.log('⚠️ No AI images generated, using fallback placeholders');
+      generatedCharacters.push(
+        { id: 1, url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', selected: false },
+        { id: 2, url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', selected: false },
+        { id: 3, url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400', selected: false },
+        { id: 4, url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400', selected: false }
+      );
+    }
 
     // Update session
     try {
@@ -300,20 +377,161 @@ router.put('/sessions/:id/select-character', isAuthenticated, async (req, res) =
   }
 });
 
+// Helper function to fetch image from URL and convert to base64
+async function fetchImageAsBase64(url: string): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Failed to fetch image from ${url}: ${response.status}`);
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString('base64');
+    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    
+    return { base64, mimeType };
+  } catch (error) {
+    console.error(`Error fetching image from ${url}:`, error);
+    return null;
+  }
+}
+
 // Step 2: Generate product images
 router.post('/sessions/:id/generate-product-images', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
   try {
-    // Mock product image generation
-    const generatedProductImages = [
-      { id: 1, url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400', selected: false },
-      { id: 2, url: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=400', selected: false },
-      { id: 3, url: 'https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=400', selected: false },
-      { id: 4, url: 'https://images.unsplash.com/photo-1579586337278-3befd40fd17a?w=400', selected: false }
+    // Get session data
+    let session: any = null;
+    try {
+      const sessions = await prisma.$queryRaw`
+        SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      ` as any[];
+      session = sessions[0];
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      session = userSessions.find(s => s.id === id);
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Get selected character URL
+    const selectedCharacter = session.selectedCharacter || session.selected_character;
+    if (!selectedCharacter) {
+      return res.status(400).json({ error: 'No character selected. Please complete the character step first.' });
+    }
+
+    // Get product details
+    const productId = session.productId || session.product_id;
+    let product: any = null;
+    try {
+      const products = await prisma.$queryRaw`
+        SELECT * FROM products WHERE id = ${productId}
+      ` as any[];
+      product = products[0];
+    } catch {
+      // Fallback: try to get from session's video ad output
+      const videoAdOutput = session.videoAdOutput || session.video_ad_output;
+      if (videoAdOutput) {
+        product = {
+          name: videoAdOutput.product_name || 'Product',
+          description: 'A quality product',
+          imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400'
+        };
+      }
+    }
+
+    if (!product) {
+      return res.status(400).json({ error: 'Product not found' });
+    }
+
+    const productImageUrl = product.imageUrl || product.image_url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400';
+
+    console.log('📸 Generating product shots...');
+    console.log(`   Character image: ${selectedCharacter.substring(0, 50)}...`);
+    console.log(`   Product image: ${productImageUrl.substring(0, 50)}...`);
+
+    // Fetch character image
+    const characterImage = await fetchImageAsBase64(selectedCharacter);
+    if (!characterImage) {
+      return res.status(400).json({ error: 'Failed to fetch character image' });
+    }
+
+    // Fetch product image
+    const productImage = await fetchImageAsBase64(productImageUrl);
+    if (!productImage) {
+      return res.status(400).json({ error: 'Failed to fetch product image' });
+    }
+
+    // Get character description from session
+    const videoAdOutput = session.videoAdOutput || session.video_ad_output;
+    const characterDescription = videoAdOutput?.customer_avatar?.visual_description || '';
+
+    // Generate multiple product shot variations
+    const generatedProductImages: { id: number; url: string; selected: boolean }[] = [];
+    const numberOfVariations = 4;
+    const variations = [
+      'Person holding the product up, showcasing it with a smile',
+      'Person using or interacting with the product naturally',
+      'Close-up of person with product, emphasizing the connection',
+      'Dynamic action shot of person with the product'
     ];
 
+    // Generate images in parallel
+    const imagePromises = variations.slice(0, numberOfVariations).map((variation, index) => 
+      llmService.generateProductShot({
+        characterImageBase64: characterImage.base64,
+        characterImageMimeType: characterImage.mimeType,
+        productImageBase64: productImage.base64,
+        productImageMimeType: productImage.mimeType,
+        productName: product.name || 'Product',
+        productDescription: `${product.description || ''}. Style: ${variation}`,
+        characterDescription
+      })
+    );
+
+    const results = await Promise.all(imagePromises);
+
+    // Process results and upload to S3
+    for (let i = 0; i < results.length; i++) {
+      const imageResult = results[i];
+      if (imageResult) {
+        try {
+          const imageBuffer = Buffer.from(imageResult.base64, 'base64');
+          const extension = imageResult.mimeType.split('/')[1] || 'png';
+          const fileName = `product-shot-${id}-${i + 1}-${Date.now()}.${extension}`;
+          
+          const s3Url = await uploadImageToS3(imageBuffer, fileName, imageResult.mimeType);
+          
+          generatedProductImages.push({
+            id: i + 1,
+            url: s3Url,
+            selected: false
+          });
+          console.log(`✅ Product shot ${i + 1} uploaded: ${s3Url}`);
+        } catch (uploadError) {
+          console.error(`❌ Failed to upload product shot ${i + 1}:`, uploadError);
+        }
+      }
+    }
+
+    // If no AI images were generated, fallback to placeholder images
+    if (generatedProductImages.length === 0) {
+      console.log('⚠️ No AI product shots generated, using fallback placeholders');
+      generatedProductImages.push(
+        { id: 1, url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400', selected: false },
+        { id: 2, url: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=400', selected: false },
+        { id: 3, url: 'https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=400', selected: false },
+        { id: 4, url: 'https://images.unsplash.com/photo-1579586337278-3befd40fd17a?w=400', selected: false }
+      );
+    }
+
+    // Update session
     try {
       await prisma.$executeRaw`
         UPDATE ugc_sessions 
@@ -399,6 +617,128 @@ router.put('/sessions/:id/scenes', isAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Error updating scenes:', error);
     res.status(500).json({ error: 'Failed to update scenes' });
+  }
+});
+
+// Step 3: Generate scene image
+router.post('/sessions/:id/generate-scene-image', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { sceneIndex, visualsPrompt } = req.body;
+  const user = req.user as any;
+
+  try {
+    // Get session data
+    let session: any = null;
+    try {
+      const sessions = await prisma.$queryRaw`
+        SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      ` as any[];
+      session = sessions[0];
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      session = userSessions.find(s => s.id === id);
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Get selected product image (reference image)
+    const selectedProductImage = session.selectedProductImage || session.selected_product_image;
+    if (!selectedProductImage) {
+      return res.status(400).json({ error: 'No product image selected. Please complete the Product Shot step first.' });
+    }
+
+    console.log(`🎬 Generating scene image for scene ${sceneIndex + 1}...`);
+    console.log(`   Reference image: ${selectedProductImage.substring(0, 50)}...`);
+    console.log(`   Visuals prompt: ${visualsPrompt.substring(0, 100)}...`);
+
+    // Fetch the product image as base64
+    const productImage = await fetchImageAsBase64(selectedProductImage);
+    if (!productImage) {
+      return res.status(400).json({ error: 'Failed to fetch product image' });
+    }
+
+    // Generate scene image using the product image as reference and visuals as prompt
+    const scenePrompt = `Generate a hyper-realistic scene for a video advertisement based on this reference image.
+
+SCENE DESCRIPTION:
+${visualsPrompt}
+
+Requirements:
+- Maintain consistency with the person and product shown in the reference image
+- Create a natural, professional video ad scene
+- Photorealistic, high-resolution quality suitable for 9:16 vertical video
+- Professional lighting that matches the scene description
+- The scene should feel authentic and engaging for social media ads`;
+
+    const imageResult = await llmService.generateImage(scenePrompt);
+    
+    if (!imageResult) {
+      return res.status(500).json({ error: 'Failed to generate scene image' });
+    }
+
+    // Upload to S3
+    const imageBuffer = Buffer.from(imageResult.base64, 'base64');
+    const extension = imageResult.mimeType.split('/')[1] || 'png';
+    const fileName = `scene-${id}-${sceneIndex + 1}-${Date.now()}.${extension}`;
+    
+    const s3Url = await uploadImageToS3(imageBuffer, fileName, imageResult.mimeType);
+    console.log(`✅ Scene image uploaded: ${s3Url}`);
+
+    res.json({ 
+      success: true, 
+      sceneIndex,
+      imageUrl: s3Url 
+    });
+  } catch (error) {
+    console.error('Error generating scene image:', error);
+    res.status(500).json({ error: 'Failed to generate scene image' });
+  }
+});
+
+// Step 3: Generate scene video
+router.post('/sessions/:id/generate-scene-video', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { sceneIndex, prompt, imageUrl } = req.body;
+  const user = req.user as any;
+
+  try {
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'Scene image is required. Generate the scene image first.' });
+    }
+
+    console.log(`🎬 Generating scene video for scene ${sceneIndex + 1}...`);
+    console.log(`   Scene image: ${imageUrl.substring(0, 50)}...`);
+    console.log(`   Prompt: ${prompt.substring(0, 100)}...`);
+
+    // Fetch the scene image as base64
+    const sceneImage = await fetchImageAsBase64(imageUrl);
+    if (!sceneImage) {
+      return res.status(400).json({ error: 'Failed to fetch scene image' });
+    }
+
+    // Generate video using the scene image as starting frame
+    const videoResult = await llmService.generateSceneVideo({
+      imageBase64: sceneImage.base64,
+      imageMimeType: sceneImage.mimeType,
+      prompt: prompt
+    });
+
+    if (!videoResult) {
+      return res.status(500).json({ error: 'Failed to generate scene video' });
+    }
+
+    console.log(`✅ Scene video generated: ${videoResult.videoUrl}`);
+
+    res.json({ 
+      success: true, 
+      sceneIndex,
+      videoUrl: videoResult.videoUrl
+    });
+  } catch (error) {
+    console.error('Error generating scene video:', error);
+    res.status(500).json({ error: 'Failed to generate scene video' });
   }
 });
 
@@ -522,4 +862,5 @@ async function simulateVideoGeneration(sessionId: string, userId: string) {
 }
 
 export default router;
+
 

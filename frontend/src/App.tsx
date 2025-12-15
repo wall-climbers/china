@@ -6,6 +6,7 @@ import ProductsPage from './pages/ProductsPage';
 import GeneratedPostsPage from './pages/GeneratedPostsPage';
 import CheckoutPage from './pages/CheckoutPage';
 import CreativeStudioPage from './pages/CreativeStudioPage';
+import AdminPage from './pages/AdminPage';
 import PrivateRoute from './components/PrivateRoute';
 
 function App() {
@@ -35,6 +36,11 @@ function App() {
             </PrivateRoute>
           } />
           <Route path="/checkout/:sessionId" element={<CheckoutPage />} />
+          <Route path="/admin" element={
+            <PrivateRoute>
+              <AdminPage />
+            </PrivateRoute>
+          } />
         </Routes>
       </Router>
     </AuthProvider>
