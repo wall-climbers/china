@@ -950,22 +950,23 @@ const CreativeStudioPage = () => {
           if (sceneIndex >= 0 && sceneIndex < updatedScenes.length) {
             const scene = updatedScenes[sceneIndex];
             const wasGenerating = scene.generatingVideo || scene.videoStatus === 'generating' || scene.videoStatus === 'queued';
+            const isJobActive = job.status === 'queued' || job.status === 'generating';
             
             // Check if this video URL is already in the videos array
             const existingVideos = scene.videos || [];
             const videoAlreadyAdded = job.videoUrl && existingVideos.some(v => v.url === job.videoUrl);
             
-            // Add new video to array when job completes
+            // Add new video to array when job completes (regardless of wasGenerating - handles page refresh)
             let newVideos = existingVideos;
             let newSelectedIndex = scene.selectedVideoIndex ?? 0;
             
-            if (wasGenerating && job.status === 'completed' && job.videoUrl && !videoAlreadyAdded) {
+            if (job.status === 'completed' && job.videoUrl && !videoAlreadyAdded) {
               // Mark existing videos as not new
               const updatedExisting = existingVideos.map(v => ({ ...v, isNew: false }));
               // Add new video to the beginning of the array
               const newVideo: SceneVideo = {
                 url: job.videoUrl,
-                isNew: true,
+                isNew: wasGenerating, // Only mark as "new" if we were actively generating
                 createdAt: new Date()
               };
               newVideos = [newVideo, ...updatedExisting];
@@ -973,18 +974,19 @@ const CreativeStudioPage = () => {
             }
             
             // Update scene with job status
+            // Only set generatingVideo if job is still active
             updatedScenes[sceneIndex] = {
               ...scene,
               videoStatus: job.status,
               videoProgress: job.progress,
-              generatingVideo: job.status === 'queued' || job.status === 'generating',
+              generatingVideo: isJobActive,
               videos: newVideos,
               selectedVideoIndex: newSelectedIndex,
               videoUrl: job.videoUrl || scene.videoUrl, // Keep legacy field updated
               videoError: job.errorMessage
             };
             
-            // Show toast on completion
+            // Show toast on completion (only if we were actively watching generation)
             if (wasGenerating && job.status === 'completed' && job.videoUrl && !videoAlreadyAdded) {
               toast.success(`Scene ${sceneIndex + 1} video generated!`);
               hasChanges = true;
@@ -1759,9 +1761,17 @@ const CreativeStudioPage = () => {
                             
                             {/* LEFT: Image Section */}
                             <div className="space-y-3 flex flex-col items-center">
-                              <div className="flex items-center gap-2 text-sm font-medium text-purple-400">
-                                <Wand2 className="h-4 w-4" />
-                                Scene Image
+                              <div className="relative group cursor-help">
+                                <div className="flex items-center justify-center gap-2 text-sm font-medium text-purple-400">
+                                  <Wand2 className="h-4 w-4" />
+                                  Scene Image
+                                  <span className="text-gray-500 text-xs">ⓘ</span>
+                                </div>
+                                {/* Tooltip */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-gray-300 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700 shadow-lg z-10">
+                                  Based on your product shot from previous step
+                                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                </div>
                               </div>
                               
                               {/* Image Gallery - Multiple images with selection */}
@@ -1808,33 +1818,41 @@ const CreativeStudioPage = () => {
                                   {/* Selection hint */}
                                   {scene.images.length > 1 && (
                                     <p className="text-xs text-gray-500 text-center">
-                                      {scene.images.length} images • Click to select
+                                      {scene.images.length} variations • Click to select
                                     </p>
                                   )}
                                   
                                   {/* Generate Another Button */}
-                                  <button
-                                    onClick={() => handleGenerateSceneImage(index)}
-                                    disabled={scene.generating || !scene.prompt || scene.generatingVideo}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                                  >
-                                    {scene.generating ? (
-                                      <>
-                                        <Loader className="h-4 w-4 animate-spin" />
-                                        Generating...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Wand2 className="h-4 w-4" />
-                                        Generate Another
-                                      </>
-                                    )}
-                                  </button>
+                                  <div className="w-full relative group">
+                                    <button
+                                      onClick={() => handleGenerateSceneImage(index)}
+                                      disabled={scene.generating || !scene.prompt || scene.generatingVideo}
+                                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    >
+                                      {scene.generating ? (
+                                        <>
+                                          <Loader className="h-4 w-4 animate-spin" />
+                                          Generating...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Wand2 className="h-4 w-4" />
+                                          Generate Another
+                                        </>
+                                      )}
+                                    </button>
+                                    {/* Tooltip */}
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-gray-300 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700 shadow-lg z-10">
+                                      {scene.generatingVideo 
+                                        ? 'Disabled while video is generating'
+                                        : 'Edit prompt above for different variations'}
+                                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                    </div>
+                                  </div>
                                 </div>
                               ) : (
                                 <div className="min-h-48 bg-gray-800 rounded-lg overflow-hidden border border-gray-600 flex flex-col items-center justify-center p-6">
-                                  <Wand2 className="h-10 w-10 text-gray-500 mb-3 opacity-50" />
-                                  <p className="text-gray-400 text-sm mb-4">No image generated</p>
+                                  <Wand2 className="h-10 w-10 text-gray-500 mb-4 opacity-50" />
                                   {/* Generate Image Button - inside the empty state */}
                                   <button
                                     onClick={() => handleGenerateSceneImage(index)}
@@ -1873,9 +1891,17 @@ const CreativeStudioPage = () => {
 
                             {/* RIGHT: Video Section */}
                             <div className="space-y-3 flex flex-col items-center">
-                              <div className="flex items-center gap-2 text-sm font-medium text-cyan-400">
-                                <Film className="h-4 w-4" />
-                                Scene Video
+                              <div className="relative group cursor-help">
+                                <div className="flex items-center justify-center gap-2 text-sm font-medium text-cyan-400">
+                                  <Film className="h-4 w-4" />
+                                  Scene Video
+                                  <span className="text-gray-500 text-xs">ⓘ</span>
+                                </div>
+                                {/* Tooltip */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-gray-300 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700 shadow-lg z-10">
+                                  Animated from the selected image
+                                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                </div>
                               </div>
                               
                               {/* Video Gallery - Multiple videos with selection */}
@@ -1924,9 +1950,9 @@ const CreativeStudioPage = () => {
                                   )}
                                   
                                   {/* Selection hint */}
-                                  {scene.videos.length > 1 && !scene.generatingVideo && (
+                                  {!scene.generatingVideo && scene.videos.length > 1 && (
                                     <p className="text-xs text-gray-500 text-center">
-                                      {scene.videos.length} videos • Click to select for final video
+                                      {scene.videos.length} variations • Click to select
                                     </p>
                                   )}
                                   
@@ -1952,14 +1978,21 @@ const CreativeStudioPage = () => {
                                     </div>
                                   ) : (
                                     /* Generate Another Button */
-                                    <button
-                                      onClick={() => handleGenerateSceneVideo(index)}
-                                      disabled={!getSelectedImageUrl(scene) || scene.generatingVideo}
-                                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                                    >
-                                      <Film className="h-4 w-4" />
-                                      Generate Another
-                                    </button>
+                                    <div className="w-full relative group">
+                                      <button
+                                        onClick={() => handleGenerateSceneVideo(index)}
+                                        disabled={!getSelectedImageUrl(scene) || scene.generatingVideo}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                      >
+                                        <Film className="h-4 w-4" />
+                                        Generate Another
+                                      </button>
+                                      {/* Tooltip */}
+                                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-gray-300 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700 shadow-lg z-10">
+                                        Select a different image for new variations
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
                               ) : scene.generatingVideo ? (
@@ -1986,10 +2019,7 @@ const CreativeStudioPage = () => {
                                 </div>
                               ) : (
                                 <div className="min-h-48 bg-gray-800 rounded-lg border border-gray-600 flex flex-col items-center justify-center p-6">
-                                  <Film className="h-10 w-10 text-gray-500 mb-3 opacity-50" />
-                                  <p className="text-gray-400 text-sm mb-4">
-                                    {getSelectedImageUrl(scene) ? 'Ready to generate video' : 'Generate image first'}
-                                  </p>
+                                  <Film className="h-10 w-10 text-gray-500 mb-4 opacity-50" />
                                   {/* Generate Video Button - inside the empty state */}
                                   <div className="relative group">
                                     <button
