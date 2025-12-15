@@ -224,19 +224,9 @@ const GeneratedPostsPage = () => {
   };
 
   const handlePreviewWithOverlay = async (post: GeneratedPost) => {
-    // Generate checkout URL if not already generated
-    if (!checkoutUrls[post.id]) {
-      const loadingToast = toast.loading('Generating checkout URL...');
-      try {
-        const response = await axios.post('/checkout/create', { productId: post.product_id }, { withCredentials: true });
-        setCheckoutUrls(prev => ({ ...prev, [post.id]: response.data.checkoutUrl }));
-        toast.success('Checkout URL generated!', { id: loadingToast });
-      } catch (error) {
-        console.error('Error generating checkout URL:', error);
-        toast.error('Failed to generate checkout URL', { id: loadingToast });
-        return;
-      }
-    }
+    // Use direct /buy/{productId} URL format instead of creating checkout session
+    const directBuyUrl = getCheckoutPageUrl(post);
+    setCheckoutUrls(prev => ({ ...prev, [post.id]: directBuyUrl }));
     setPreviewingOverlay(post);
   };
 
@@ -686,8 +676,17 @@ const GeneratedPostsPage = () => {
                       {previewingOverlay.content}
                     </p>
                     {previewTab === 'with' && (
-                      <p className="text-sm text-blue-600 mb-2">
-                        🛒 Shop now: {getCheckoutPageUrl(previewingOverlay)}
+                      <p className="text-sm mb-2">
+                        🛒 Shop now:{' '}
+                        <a
+                          href={getCheckoutPageUrl(previewingOverlay)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {getCheckoutPageUrl(previewingOverlay)}
+                        </a>
                       </p>
                     )}
                     <a 
@@ -741,15 +740,7 @@ const GeneratedPostsPage = () => {
                       <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full"></div>
                       <p className="text-sm font-semibold text-gray-900">your_business</p>
                     </div>
-                    <a 
-                      href={previewTab === 'with' ? getCheckoutPageUrl(previewingOverlay) : undefined}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`relative block ${previewTab === 'with' ? 'cursor-pointer hover:opacity-95 transition-opacity' : ''}`}
-                      onClick={(e) => {
-                        if (previewTab !== 'with') e.preventDefault();
-                      }}
-                    >
+                    <div className="relative">
                       {previewingOverlay.type === 'video' && isValidVideoUrl(previewingOverlay.media_url) ? (
                         <video
                           src={previewingOverlay.media_url}
@@ -757,7 +748,6 @@ const GeneratedPostsPage = () => {
                           controls
                           muted
                           playsInline
-                          onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
                         <img
@@ -767,19 +757,25 @@ const GeneratedPostsPage = () => {
                         />
                       )}
                       {previewTab === 'with' && (
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 pointer-events-none">
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="text-white text-sm font-medium">{previewingOverlay.product_title}</p>
                               <p className="text-white/80 text-xs">${previewingOverlay.price}</p>
                             </div>
-                            <div className="bg-white text-black text-xs font-semibold px-3 py-1 rounded-full">
+                            <a
+                              href={getCheckoutPageUrl(previewingOverlay)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-white text-black text-sm font-bold px-5 py-2 rounded-full hover:bg-gray-100 hover:scale-105 transition-all cursor-pointer shadow-lg"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               Shop
-                            </div>
+                            </a>
                           </div>
                         </div>
                       )}
-                    </a>
+                    </div>
                     <div className="p-3">
                       <div className="flex gap-4 mb-2">
                         <span>❤️</span>
@@ -790,10 +786,16 @@ const GeneratedPostsPage = () => {
                         <span className="font-semibold">your_business</span>{' '}
                         <span className="text-gray-800 line-clamp-2">{previewingOverlay.content.split('\n')[0]}</span>
                       </p>
-                      {previewTab === 'with' && (
-                        <p className="text-sm text-blue-600 mt-1">
+                      {previewTab === 'with' && checkoutUrls[previewingOverlay.id] && (
+                        <a
+                          href={checkoutUrls[previewingOverlay.id]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 hover:text-blue-700 hover:underline mt-1 inline-flex items-center gap-1 cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           🔗 Link in bio
-                        </p>
+                        </a>
                       )}
                     </div>
                   </div>
@@ -816,8 +818,17 @@ const GeneratedPostsPage = () => {
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{previewingOverlay.content}</p>
                   {previewTab === 'with' && (
                     <div className="mt-3 pt-3 border-t border-dashed">
-                      <p className="text-sm text-blue-600">
-                        🛒 Shop now: {getCheckoutPageUrl(previewingOverlay)}
+                      <p className="text-sm">
+                        🛒 Shop now:{' '}
+                        <a
+                          href={getCheckoutPageUrl(previewingOverlay)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {getCheckoutPageUrl(previewingOverlay)}
+                        </a>
                       </p>
                     </div>
                   )}
