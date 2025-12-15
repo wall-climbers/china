@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Buffer } from 'buffer';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
@@ -170,6 +170,38 @@ export const uploadImageToS3 = async (
     const mockS3Url = `https://${S3_BUCKET}.s3.amazonaws.com/images/mock-${Date.now()}-${fileName}`;
     console.log(`⚠️  S3 upload failed (using mock URL): ${mockS3Url}`);
     return mockS3Url;
+  }
+};
+
+export const deleteFromS3 = async (s3Url: string): Promise<boolean> => {
+  try {
+    // Extract the key from the S3 URL
+    // URL format: https://{bucket}.s3.{region}.amazonaws.com/{key}
+    const url = new URL(s3Url);
+    const key = url.pathname.substring(1); // Remove leading slash
+    
+    if (!key) {
+      console.log('⚠️  Invalid S3 URL, no key found');
+      return false;
+    }
+
+    // Skip deletion if it's a mock URL
+    if (key.includes('mock-')) {
+      console.log('⚠️  Skipping deletion of mock S3 URL');
+      return true;
+    }
+
+    const command = new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key
+    });
+
+    await s3Client.send(command);
+    console.log(`✅ Deleted from S3: ${key}`);
+    return true;
+  } catch (error) {
+    console.error('S3 delete error:', error);
+    return false;
   }
 };
 

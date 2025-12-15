@@ -2,7 +2,7 @@ import express from 'express';
 import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
 import { llmService } from '../services/llm';
-import { uploadImageToS3 } from '../services/s3';
+import { uploadImageToS3, deleteFromS3 } from '../services/s3';
 import { videoStitcherService, SceneVideo, StitchProgress } from '../services/video-stitcher';
 
 const router = express.Router();
@@ -146,6 +146,89 @@ router.patch('/sessions/:id/title', isAuthenticated, async (req, res) => {
     }
 
     res.json({ success: true });
+  }
+});
+
+// Delete UGC session
+router.delete('/sessions/:id', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const user = req.user as any;
+
+  try {
+    // First, get the session to access video URLs
+    let session: any = null;
+    
+    try {
+      const sessions = await prisma.$queryRaw`
+        SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      ` as any[];
+      session = sessions[0];
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      session = userSessions.find(s => s.id === id);
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Delete videos from S3
+    const videosToDelete: string[] = [];
+    
+    // Add final video URL if exists
+    if (session.video_url || session.videoUrl) {
+      videosToDelete.push(session.video_url || session.videoUrl);
+    }
+
+    // Add scene videos if they exist
+    if (session.edited_scenes || session.editedScenes) {
+      const scenes = session.edited_scenes || session.editedScenes;
+      if (typeof scenes === 'string') {
+        try {
+          const parsedScenes = JSON.parse(scenes);
+          parsedScenes.forEach((scene: any) => {
+            if (scene.videoUrl) videosToDelete.push(scene.videoUrl);
+            if (scene.videos) {
+              scene.videos.forEach((video: any) => {
+                if (video.url) videosToDelete.push(video.url);
+              });
+            }
+          });
+        } catch (e) {
+          console.error('Error parsing scenes:', e);
+        }
+      } else if (Array.isArray(scenes)) {
+        scenes.forEach((scene: any) => {
+          if (scene.videoUrl) videosToDelete.push(scene.videoUrl);
+          if (scene.videos) {
+            scene.videos.forEach((video: any) => {
+              if (video.url) videosToDelete.push(video.url);
+            });
+          }
+        });
+      }
+    }
+
+    // Delete all videos from S3
+    console.log(`🗑️  Deleting ${videosToDelete.length} videos from S3...`);
+    await Promise.all(videosToDelete.map(url => deleteFromS3(url)));
+
+    // Delete the session from database
+    try {
+      await prisma.$executeRaw`
+        DELETE FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      `;
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      const updatedSessions = userSessions.filter(s => s.id !== id);
+      inMemoryUgcSessions.set(user.id, updatedSessions);
+    }
+
+    console.log(`✅ Session ${id} deleted successfully`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    res.status(500).json({ error: 'Failed to delete session' });
   }
 });
 
