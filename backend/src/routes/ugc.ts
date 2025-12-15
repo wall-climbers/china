@@ -3,6 +3,7 @@ import { isAuthenticated } from '../middleware/auth';
 import prisma from '../lib/prisma';
 import { llmService } from '../services/llm';
 import { uploadImageToS3 } from '../services/s3';
+import { videoStitcherService, SceneVideo, StitchProgress } from '../services/video-stitcher';
 
 const router = express.Router();
 
@@ -742,13 +743,61 @@ router.post('/sessions/:id/generate-scene-video', isAuthenticated, async (req, r
   }
 });
 
-// Step 4: Generate video
+// Store active stitching progress for polling
+const stitchingProgress = new Map<string, StitchProgress>();
+
+// Step 4: Generate video (stitch scene videos together)
 router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) => {
   const { id } = req.params;
+  const { scenes: scenesFromRequest } = req.body;
   const user = req.user as any;
 
   try {
-    // Start video generation (mock)
+    // Get session to retrieve scene videos
+    let session: any = null;
+    let scenes: any[] = [];
+
+    try {
+      const sessions = await prisma.$queryRaw`
+        SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
+      ` as any[];
+      session = sessions[0];
+    } catch {
+      const userSessions = inMemoryUgcSessions.get(user.id) || [];
+      session = userSessions.find(s => s.id === id);
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Get scenes from request body or from session
+    if (scenesFromRequest && Array.isArray(scenesFromRequest)) {
+      scenes = scenesFromRequest;
+    } else {
+      // Fall back to edited_scenes or original scenes from session
+      scenes = session.editedScenes || session.edited_scenes || session.scenes || [];
+    }
+
+    // Filter scenes that have video URLs and are included in final
+    const scenesWithVideos: SceneVideo[] = scenes
+      .filter((scene: any) => scene.videoUrl && scene.includeInFinal !== false)
+      .map((scene: any, index: number) => ({
+        videoUrl: scene.videoUrl,
+        transition: scene.transition || (index === scenes.length - 1 ? 'none' : 'fade'),
+        duration: scene.videoDuration || 4,
+        includeInFinal: scene.includeInFinal !== false
+      }));
+
+    if (scenesWithVideos.length === 0) {
+      return res.status(400).json({ 
+        error: 'No scene videos found. Please generate videos for at least one scene first.' 
+      });
+    }
+
+    console.log(`🎬 Starting video stitching for session ${id} with ${scenesWithVideos.length} scenes...`);
+
+    // Update session status to generating
     try {
       await prisma.$executeRaw`
         UPDATE ugc_sessions 
@@ -770,15 +819,126 @@ router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) =>
       }
     }
 
-    // Simulate video generation progress
-    simulateVideoGeneration(id, user.id);
+    // Send immediate response
+    res.json({ success: true, message: 'Video stitching started' });
 
-    res.json({ success: true, message: 'Video generation started' });
+    // Auto-assign smart transitions if not specified
+    const scenesWithTransitions = videoStitcherService.autoAssignTransitions(scenesWithVideos);
+
+    // Run stitching in background with progress tracking
+    videoStitcherService.stitchVideos(
+      {
+        scenes: scenesWithTransitions,
+        transitionDuration: 0.5,
+        outputQuality: 'high'
+      },
+      (progress: StitchProgress) => {
+        // Store progress for polling
+        stitchingProgress.set(id, progress);
+        
+        // Update session progress in DB
+        const dbProgress = progress.progress;
+        updateSessionProgress(id, user.id, dbProgress, progress.stage === 'complete', progress.stage === 'error');
+      }
+    ).then(async (result) => {
+      if (result.success && result.videoUrl) {
+        console.log(`✅ Video stitching complete: ${result.videoUrl}`);
+        
+        // Update session with final video URL
+        try {
+          await prisma.$executeRaw`
+            UPDATE ugc_sessions 
+            SET video_progress = 100,
+                status = 'completed',
+                video_url = ${result.videoUrl},
+                updated_at = NOW()
+            WHERE id = ${id}
+          `;
+        } catch {
+          const userSessions = inMemoryUgcSessions.get(user.id) || [];
+          const sessionIndex = userSessions.findIndex(s => s.id === id);
+          if (sessionIndex !== -1) {
+            userSessions[sessionIndex].videoProgress = 100;
+            userSessions[sessionIndex].status = 'completed';
+            userSessions[sessionIndex].videoUrl = result.videoUrl;
+            userSessions[sessionIndex].updatedAt = new Date();
+            inMemoryUgcSessions.set(user.id, userSessions);
+          }
+        }
+      } else {
+        console.error(`❌ Video stitching failed: ${result.error}`);
+        
+        // Update session with error
+        try {
+          await prisma.$executeRaw`
+            UPDATE ugc_sessions 
+            SET status = 'failed',
+                updated_at = NOW()
+            WHERE id = ${id}
+          `;
+        } catch {
+          const userSessions = inMemoryUgcSessions.get(user.id) || [];
+          const sessionIndex = userSessions.findIndex(s => s.id === id);
+          if (sessionIndex !== -1) {
+            userSessions[sessionIndex].status = 'failed';
+            userSessions[sessionIndex].updatedAt = new Date();
+            inMemoryUgcSessions.set(user.id, userSessions);
+          }
+        }
+      }
+      
+      // Clean up progress tracker after a delay
+      setTimeout(() => stitchingProgress.delete(id), 60000);
+    });
+
   } catch (error) {
     console.error('Error starting video generation:', error);
     res.status(500).json({ error: 'Failed to start video generation' });
   }
 });
+
+// Helper function to update session progress
+async function updateSessionProgress(
+  sessionId: string, 
+  userId: string, 
+  progress: number, 
+  isComplete: boolean,
+  isError: boolean
+) {
+  try {
+    if (isComplete) {
+      // Don't update here - the final update with URL will happen after
+      return;
+    }
+    
+    if (isError) {
+      await prisma.$executeRaw`
+        UPDATE ugc_sessions 
+        SET status = 'failed',
+            updated_at = NOW()
+        WHERE id = ${sessionId}
+      `;
+    } else {
+      await prisma.$executeRaw`
+        UPDATE ugc_sessions 
+        SET video_progress = ${progress},
+            updated_at = NOW()
+        WHERE id = ${sessionId}
+      `;
+    }
+  } catch {
+    const userSessions = inMemoryUgcSessions.get(userId) || [];
+    const sessionIndex = userSessions.findIndex(s => s.id === sessionId);
+    if (sessionIndex !== -1) {
+      userSessions[sessionIndex].videoProgress = progress;
+      if (isError) {
+        userSessions[sessionIndex].status = 'failed';
+      }
+      userSessions[sessionIndex].updatedAt = new Date();
+      inMemoryUgcSessions.set(userId, userSessions);
+    }
+  }
+}
 
 // Get video generation progress
 router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
@@ -786,6 +946,9 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
   const user = req.user as any;
 
   try {
+    // First check if we have active stitching progress
+    const activeProgress = stitchingProgress.get(id);
+    
     try {
       const sessions = await prisma.$queryRaw`
         SELECT video_progress, status, video_url FROM ugc_sessions 
@@ -796,7 +959,10 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
         res.json({
           progress: sessions[0].video_progress,
           status: sessions[0].status,
-          videoUrl: sessions[0].video_url
+          videoUrl: sessions[0].video_url,
+          // Include detailed stage info if available
+          stage: activeProgress?.stage,
+          message: activeProgress?.message
         });
         return;
       }
@@ -807,7 +973,9 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
         res.json({
           progress: session.videoProgress,
           status: session.status,
-          videoUrl: session.videoUrl
+          videoUrl: session.videoUrl,
+          stage: activeProgress?.stage,
+          message: activeProgress?.message
         });
         return;
       }
@@ -819,47 +987,6 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to get progress' });
   }
 });
-
-// Helper function to simulate video generation
-async function simulateVideoGeneration(sessionId: string, userId: string) {
-  const steps = [10, 25, 40, 55, 70, 85, 100];
-  
-  for (const progress of steps) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    try {
-      if (progress === 100) {
-        await prisma.$executeRaw`
-          UPDATE ugc_sessions 
-          SET video_progress = ${progress},
-              status = 'completed',
-              video_url = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
-              updated_at = NOW()
-          WHERE id = ${sessionId}
-        `;
-      } else {
-        await prisma.$executeRaw`
-          UPDATE ugc_sessions 
-          SET video_progress = ${progress},
-              updated_at = NOW()
-          WHERE id = ${sessionId}
-        `;
-      }
-    } catch {
-      const userSessions = inMemoryUgcSessions.get(userId) || [];
-      const sessionIndex = userSessions.findIndex(s => s.id === sessionId);
-      if (sessionIndex !== -1) {
-        userSessions[sessionIndex].videoProgress = progress;
-        if (progress === 100) {
-          userSessions[sessionIndex].status = 'completed';
-          userSessions[sessionIndex].videoUrl = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4';
-        }
-        userSessions[sessionIndex].updatedAt = new Date();
-        inMemoryUgcSessions.set(userId, userSessions);
-      }
-    }
-  }
-}
 
 export default router;
 

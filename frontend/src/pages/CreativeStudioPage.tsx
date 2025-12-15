@@ -23,14 +23,26 @@ interface Scene {
   prompt: string;      // visuals
   dialogue: string;
   motion: string;
-  transitions: string;
+  transitions: string; // original transitions text from LLM
   duration: number;
   imageUrl?: string;       // generated scene image
   generating?: boolean;    // loading state for image generation
   videoUrl?: string;       // generated scene video
   generatingVideo?: boolean; // loading state for video generation
   included?: boolean;      // whether to include in final video
+  transitionType?: 'fade' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideup' | 'circleopen' | 'none'; // transition to next scene
 }
+
+// Available transitions for video stitching
+const TRANSITION_OPTIONS = [
+  { value: 'fade', label: '✨ Fade' },
+  { value: 'dissolve', label: '🌊 Dissolve' },
+  { value: 'wipeleft', label: '👈 Wipe Left' },
+  { value: 'wiperight', label: '👉 Wipe Right' },
+  { value: 'slideup', label: '⬆️ Slide Up' },
+  { value: 'circleopen', label: '⭕ Circle Open' },
+  { value: 'none', label: '🚫 None (Cut)' },
+];
 
 interface UgcSession {
   id: string;
@@ -107,6 +119,8 @@ const CreativeStudioPage = () => {
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState<string>('draft');
+  const [stitchingStage, setStitchingStage] = useState<string>('');
+  const [stitchingMessage, setStitchingMessage] = useState<string>('');
 
   useEffect(() => {
     fetchProduct();
@@ -128,12 +142,25 @@ const CreativeStudioPage = () => {
           const response = await axios.get(`/api/ugc/sessions/${session.id}/progress`, { withCredentials: true });
           setVideoProgress(response.data.progress);
           setVideoStatus(response.data.status);
+          
+          // Update stitching stage and message if available
+          if (response.data.stage) {
+            setStitchingStage(response.data.stage);
+          }
+          if (response.data.message) {
+            setStitchingMessage(response.data.message);
+          }
+          
           if (response.data.videoUrl) {
             setVideoUrl(response.data.videoUrl);
           }
           if (response.data.status === 'completed') {
             clearInterval(interval);
-            toast.success('Video generated successfully!');
+            toast.success('Video stitched successfully!');
+          }
+          if (response.data.status === 'failed') {
+            clearInterval(interval);
+            toast.error('Video stitching failed');
           }
         } catch (error) {
           console.error('Error polling progress:', error);
@@ -545,19 +572,41 @@ const CreativeStudioPage = () => {
 
   const handleGenerateVideo = async () => {
     if (!session) return;
+    
+    // Check if we have any scenes with videos
+    const scenesWithVideos = scenes.filter(s => s.videoUrl && s.included !== false);
+    if (scenesWithVideos.length === 0) {
+      toast.error('Please generate videos for at least one scene first');
+      return;
+    }
+
     setCurrentStep(4);
     setVideoStatus('generating');
     setVideoProgress(0);
+    setStitchingStage('downloading');
+    setStitchingMessage('Preparing to stitch videos...');
+    
     try {
+      // Prepare scenes data with video URLs and transitions
+      const scenesData = scenes
+        .filter(s => s.included !== false)
+        .map((scene, index) => ({
+          videoUrl: scene.videoUrl,
+          transition: scene.transitionType || 'fade',
+          duration: scene.duration || 4,
+          includeInFinal: scene.included !== false
+        }));
+
       await axios.post(
         `/api/ugc/sessions/${session.id}/generate-video`,
-        {},
+        { scenes: scenesData },
         { withCredentials: true }
       );
-      toast.success('Video generation started!');
-    } catch (error) {
+      toast.success('Video stitching started!');
+    } catch (error: any) {
       console.error('Error starting video generation:', error);
-      toast.error('Failed to start video generation');
+      const errorMessage = error.response?.data?.error || 'Failed to start video generation';
+      toast.error(errorMessage);
       setVideoStatus('failed');
     }
   };
@@ -592,6 +641,14 @@ const CreativeStudioPage = () => {
     const newScenes = [...scenes];
     newScenes[index] = { ...newScenes[index], transitions };
     setScenes(newScenes);
+  };
+
+  const updateSceneTransitionType = (index: number, transitionType: Scene['transitionType']) => {
+    const newScenes = [...scenes];
+    newScenes[index] = { ...newScenes[index], transitionType };
+    setScenes(newScenes);
+    // Auto-save the transition type
+    handleUpdateScenes(newScenes);
   };
 
   const toggleSceneIncluded = (index: number) => {
@@ -1380,7 +1437,7 @@ const CreativeStudioPage = () => {
                         </div>
 
                         {/* Motion & Transitions */}
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-blue-400 mb-1.5">
                               Motion
@@ -1396,7 +1453,7 @@ const CreativeStudioPage = () => {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-orange-400 mb-1.5">
-                              Transitions
+                              Transition Notes
                             </label>
                             <input
                               type="text"
@@ -1406,6 +1463,21 @@ const CreativeStudioPage = () => {
                               className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none"
                               placeholder="Transition type..."
                             />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-green-400 mb-1.5">
+                              Video Transition {index < scenes.length - 1 ? '→ Next' : '(End)'}
+                            </label>
+                            <select
+                              value={scene.transitionType || 'fade'}
+                              onChange={(e) => updateSceneTransitionType(index, e.target.value as Scene['transitionType'])}
+                              disabled={index === scenes.length - 1}
+                              className="w-full bg-gray-800 text-gray-200 rounded-lg p-3 text-sm border border-gray-600 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none disabled:opacity-50"
+                            >
+                              {TRANSITION_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
                           </div>
                         </div>
 
@@ -1491,13 +1563,28 @@ const CreativeStudioPage = () => {
                 ))}
               </div>
 
-              <div className="flex justify-end pt-4">
+              {/* Summary & Generate Button */}
+              <div className="flex items-center justify-between pt-4 border-t border-gray-700">
+                <div className="text-sm text-gray-400">
+                  <span className="text-green-400 font-medium">
+                    {scenes.filter(s => s.videoUrl && s.included !== false).length}
+                  </span>
+                  {' / '}
+                  <span>{scenes.filter(s => s.included !== false).length}</span>
+                  {' scenes ready for stitching'}
+                  {scenes.filter(s => s.videoUrl && s.included !== false).length > 0 && (
+                    <span className="ml-3 text-gray-500">
+                      (Transitions: {scenes.filter(s => s.included !== false).map(s => s.transitionType || 'fade').slice(0, -1).join(' → ')})
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={handleGenerateVideo}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
+                  disabled={scenes.filter(s => s.videoUrl && s.included !== false).length === 0}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Play className="h-5 w-5" />
-                  Generate Video
+                  Stitch Videos ({scenes.filter(s => s.videoUrl && s.included !== false).length} scenes)
                 </button>
               </div>
             </div>
@@ -1520,6 +1607,24 @@ const CreativeStudioPage = () => {
               {videoStatus === 'generating' && (
                 <div className="py-12">
                   <div className="max-w-md mx-auto">
+                    {/* Stage indicator */}
+                    <div className="flex justify-center gap-2 mb-6">
+                      {['downloading', 'processing', 'stitching', 'uploading'].map((stage, idx) => (
+                        <div key={stage} className="flex items-center">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                            stitchingStage === stage 
+                              ? 'bg-purple-500 text-white animate-pulse' 
+                              : ['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx
+                                ? 'bg-green-500 text-white'
+                                : 'bg-gray-700 text-gray-400'
+                          }`}>
+                            {['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx ? '✓' : idx + 1}
+                          </div>
+                          {idx < 3 && <div className="w-8 h-0.5 bg-gray-700 mx-1" />}
+                        </div>
+                      ))}
+                    </div>
+                    
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-gray-400">Progress</span>
                       <span className="text-white font-medium">{videoProgress}%</span>
@@ -1533,10 +1638,18 @@ const CreativeStudioPage = () => {
                     <div className="mt-4 text-center">
                       <Loader className="h-8 w-8 text-purple-500 animate-spin mx-auto mb-2" />
                       <p className="text-gray-400 text-sm">
-                        {videoProgress < 25 && 'Preparing assets...'}
-                        {videoProgress >= 25 && videoProgress < 50 && 'Generating scenes...'}
-                        {videoProgress >= 50 && videoProgress < 75 && 'Rendering video...'}
-                        {videoProgress >= 75 && videoProgress < 100 && 'Finalizing...'}
+                        {stitchingMessage || (
+                          <>
+                            {stitchingStage === 'downloading' && '📥 Downloading scene videos...'}
+                            {stitchingStage === 'processing' && '⚙️ Preparing video segments...'}
+                            {stitchingStage === 'stitching' && '🎬 Stitching videos with transitions...'}
+                            {stitchingStage === 'uploading' && '☁️ Uploading final video...'}
+                            {!stitchingStage && 'Starting video stitching...'}
+                          </>
+                        )}
+                      </p>
+                      <p className="text-gray-500 text-xs mt-2">
+                        Combining {scenes.filter(s => s.videoUrl && s.included !== false).length} scenes
                       </p>
                     </div>
                   </div>
