@@ -36,6 +36,7 @@ function App() {
             </PrivateRoute>
           } />
           <Route path="/checkout/:sessionId" element={<CheckoutPage />} />
+          <Route path="/buy/:productId" element={<CheckoutPage />} />
           <Route path="/admin" element={
             <PrivateRoute>
               <AdminPage />

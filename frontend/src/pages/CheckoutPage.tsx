@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { ShoppingBag, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -15,11 +15,13 @@ interface CheckoutSession {
 }
 
 const CheckoutPage = () => {
-  const { sessionId } = useParams<{ sessionId: string }>();
+  const { sessionId, productId } = useParams<{ sessionId?: string; productId?: string }>();
+  const location = useLocation();
   const [session, setSession] = useState<CheckoutSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(sessionId || null);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     email: '',
@@ -28,14 +30,67 @@ const CheckoutPage = () => {
     zipCode: ''
   });
 
-  useEffect(() => {
-    fetchSession();
-  }, [sessionId]);
+  // Check if we're on the /buy/:productId route
+  const isBuyRoute = location.pathname.startsWith('/buy/');
 
-  const fetchSession = async () => {
+  useEffect(() => {
+    const loadCheckout = async () => {
+      if (isBuyRoute && productId) {
+        // Create a checkout session for this product
+        await createSessionFromProduct();
+      } else if (sessionId) {
+        await fetchSession(sessionId);
+      } else {
+        // Neither route matched - show error
+        console.error('No productId or sessionId found');
+        setLoading(false);
+      }
+    };
+    
+    loadCheckout();
+  }, [sessionId, productId, isBuyRoute]);
+
+  const createSessionFromProduct = async () => {
     try {
-      const response = await axios.get(`/checkout/${sessionId}`);
+      console.log('Creating session for product:', productId);
+      // Use the product endpoint to get/create a session
+      const response = await axios.get(`/checkout/product/${productId}`);
+      console.log('Session created:', response.data);
       setSession(response.data.session);
+      setCheckoutSessionId(response.data.session.id);
+    } catch (error: any) {
+      console.error('Error creating checkout session:', error);
+      console.error('Error response:', error.response?.data);
+      // If the database product endpoint fails, try to fetch product directly
+      try {
+        const productResponse = await axios.get(`/api/products/${productId}`, { withCredentials: true });
+        if (productResponse.data.product) {
+          const product = productResponse.data.product;
+          // Create a mock session from the product data
+          setSession({
+            id: `temp-${productId}`,
+            product_id: productId!,
+            title: product.title,
+            description: product.description,
+            price: product.price,
+            image_url: product.imageUrl || product.image_url,
+            sku: product.sku
+          });
+          setCheckoutSessionId(`temp-${productId}`);
+        }
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSession = async (id: string) => {
+    try {
+      const response = await axios.get(`/checkout/${id}`);
+      setSession(response.data.session);
+      setCheckoutSessionId(id);
     } catch (error) {
       console.error('Error fetching checkout session:', error);
     } finally {
@@ -48,7 +103,7 @@ const CheckoutPage = () => {
     setProcessing(true);
 
     try {
-      await axios.post(`/checkout/${sessionId}/complete`, { customerInfo });
+      await axios.post(`/checkout/${checkoutSessionId}/complete`, { customerInfo });
       setCompleted(true);
       toast.success('Payment completed successfully!');
     } catch (error) {

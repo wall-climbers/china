@@ -2,7 +2,8 @@ import axios from 'axios';
 
 // Configure axios defaults
 axios.defaults.withCredentials = true;
-axios.defaults.baseURL = '';
+// Use environment variable for API URL in production, empty string for local dev (uses Vite proxy)
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || '';
 
 // Add request interceptor for debugging (optional)
 axios.interceptors.request.use(
