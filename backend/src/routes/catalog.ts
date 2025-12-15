@@ -150,6 +150,36 @@ Order now: https://www.aliexpress.com/item/1005008925093170.html`,
         description: 'Professional gaming mouse with RGB lighting and programmable buttons.',
         price: 59.99,
         imageUrl: 'https://images.unsplash.com/photo-1527814050087-3793815479db?w=500'
+      },
+      {
+        sku: 'PROD-006',
+        title: 'Neutrogena Hydro Boost Water Gel',
+        description: `💧 Neutrogena Hydro Boost Water Gel: Deep Hydration for a Healthy Glow
+
+✨ About This Item
+
+Experience continuous hydration and clinically proven results with the Neutrogena Hydro Boost Water Gel. This advanced formula is designed to work with your skin for a lasting, natural glow.
+
+Key Benefits & Features:
+• Natural Hyaluronic Acid Boost: Contains Prebiotics that help stimulate your skin to produce its own natural hyaluronic acid for continuous hydration.
+• Clinically Proven Results: Visibly improves skin translucency, firmness, smoothness, & plumpness for a natural, healthy glow.
+• 72-Hour Hydration: Provides intense hydration that lasts up to 72 hours, constantly quenching your skin's thirst throughout the day.
+• Barrier Repair: Features an Anti-oxidant Olive Extract Formula to repair skin barriers damaged by the environment.
+• Tested on Asian Skin.
+
+📝 Product Description
+
+Neutrogena Hydro Boost Water Gel goes beyond standard hydration by helping to stimulate the skin to produce its own natural hyaluronic acid. This action ensures continuous and deeper hydration. It is clinically proven to visibly improve skin translucency, firmness, smoothness, and plumpness, delivering a natural, healthy glow that lasts up to 72 hours.
+
+📋 Directions for Use
+
+Apply evenly to the face and neck after cleansing. Gently massage into the skin to boost absorption.
+
+💖 What Customers Say
+
+Customers consistently find this moisturizer effective and lightweight. Many appreciate its pleasant fragrance and consider it good value for money. Particularly beneficial for oily skin, as it leaves the skin with a matte appearance.`,
+        price: 28.99,
+        imageUrl: 'http://localhost:3001/static/catalog/water_gel.png'
       }
     ];
 

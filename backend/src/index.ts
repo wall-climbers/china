@@ -3,6 +3,7 @@ import cors from 'cors';
 import session from 'express-session';
 import passport from 'passport';
 import dotenv from 'dotenv';
+import path from 'path';
 import { initDatabase } from './database';
 import authRoutes from './routes/auth';
 import catalogRoutes from './routes/catalog';
@@ -75,6 +76,9 @@ app.use('/api/social', socialRoutes);
 app.use('/api/ugc', ugcRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/checkout', checkoutRoutes);
+
+// Serve static files from mock_catalog_image directory
+app.use('/static/catalog', express.static(path.join(__dirname, '..', 'mock_catalog_image')));
 
 // Health check
 app.get('/health', (req, res) => {
