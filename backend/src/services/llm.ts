@@ -112,7 +112,7 @@ export class LLMService {
               console.log(`✅ Image generated successfully (${mimeType})`);
               
               // Track successful text-to-image operation
-              llmCounter.incrementTextToImage(modelName, true, durationMs);
+              await llmCounter.incrementTextToImage(modelName, true, durationMs);
               
               return {
                 base64: data as string,
@@ -127,7 +127,7 @@ export class LLMService {
       console.log('⚠️ No image data in response');
       
       // Track failed text-to-image operation (no image in response)
-      llmCounter.incrementTextToImage(modelName, false, durationMs, 'No image data in response');
+      await llmCounter.incrementTextToImage(modelName, false, durationMs, 'No image data in response');
       
       return null;
     } catch (error) {
@@ -135,7 +135,7 @@ export class LLMService {
       console.error('❌ Error generating image:', error);
       
       // Track failed text-to-image operation
-      llmCounter.incrementTextToImage(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
+      await llmCounter.incrementTextToImage(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
       
       return null;
     }
@@ -256,7 +256,7 @@ Requirements:
               const durationMs = Date.now() - startTime;
               console.log(`✅ Product shot generated successfully (${mimeType})`);
               
-              llmCounter.incrementTextToImage(modelName, true, durationMs);
+              await llmCounter.incrementTextToImage(modelName, true, durationMs);
               
               return {
                 base64: data as string,
@@ -269,13 +269,13 @@ Requirements:
 
       const durationMs = Date.now() - startTime;
       console.log('⚠️ No image data in product shot response');
-      llmCounter.incrementTextToImage(modelName, false, durationMs, 'No image data in response');
+      await llmCounter.incrementTextToImage(modelName, false, durationMs, 'No image data in response');
       
       return null;
     } catch (error) {
       const durationMs = Date.now() - startTime;
       console.error('❌ Error generating product shot:', error);
-      llmCounter.incrementTextToImage(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
+      await llmCounter.incrementTextToImage(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
       
       return null;
     }
@@ -284,14 +284,17 @@ Requirements:
   /**
    * Generate a video from an image and text prompt
    * Uses Gemini's video generation with image-to-video capability
+   * @param options.onProgress - Optional callback for progress updates (0-100)
    */
   async generateSceneVideo(options: {
     imageBase64: string;
     imageMimeType: string;
     prompt: string;
+    onProgress?: (progress: number, message: string) => void;
   }): Promise<{ videoUrl: string } | null> {
     const startTime = Date.now();
     const videoModel = process.env.GEMINI_VIDEO_MODEL;
+    const reportProgress = options.onProgress || (() => {});
     
     if (!videoModel) {
       console.error('❌ GEMINI_VIDEO_MODEL is not configured');
@@ -304,6 +307,8 @@ Requirements:
       console.log(`🎬 Starting scene video generation (model: ${videoModel})...`);
       console.log(`   Prompt: ${options.prompt.substring(0, 100)}...`);
 
+      reportProgress(35, 'Starting video generation...');
+
       // Start video generation with image as starting frame
       let operation = await ai.models.generateVideos({
         model: videoModel,
@@ -315,14 +320,38 @@ Requirements:
       } as any);
 
       console.log(`🎬 Video generation started, polling for completion...`);
+      reportProgress(40, 'Video generation in progress...');
 
       // Poll until done (max 10 minutes)
       let pollCount = 0;
       const maxPolls = 60;
       
+      // Gemini typically completes within 10 polls (~100 seconds)
+      // Progress goes from 40% to 88% over expected 12 polls (with buffer)
+      // Then slows down for remaining polls if it takes longer
+      const expectedPolls = 12; // Expected completion with buffer
+      const progressStart = 40;
+      const progressEnd = 88;
+      const progressRange = progressEnd - progressStart;
+      
       while (!operation.done && pollCount < maxPolls) {
         pollCount++;
-        console.log(`   Polling... (attempt ${pollCount}/${maxPolls})`);
+        
+        // Calculate progress: fast progress up to expectedPolls, then slow down
+        let pollProgress: number;
+        if (pollCount <= expectedPolls) {
+          // Normal progress: 40% -> 88% over 12 polls
+          pollProgress = progressStart + Math.round((pollCount / expectedPolls) * progressRange);
+        } else {
+          // Slower progress for unexpected delays: 88% -> 90% over remaining polls
+          const extraProgress = Math.min((pollCount - expectedPolls) / (maxPolls - expectedPolls) * 2, 2);
+          pollProgress = Math.round(progressEnd + extraProgress);
+        }
+        pollProgress = Math.min(pollProgress, 90);
+        
+        console.log(`   Polling... (attempt ${pollCount}/${maxPolls}) - ${pollProgress}%`);
+        reportProgress(pollProgress, `Generating video... (${pollCount}/${expectedPolls})`);
+        
         await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
         
         operation = await ai.operations.getVideosOperation({ operation });
@@ -334,6 +363,7 @@ Requirements:
 
       const durationMs = Date.now() - startTime;
       console.log(`✅ Video generation completed in ${durationMs}ms`);
+      reportProgress(92, 'Video generated, uploading...');
 
       // Get the generated video
       const generatedVideos = (operation as any).response?.generatedVideos;
@@ -353,10 +383,14 @@ Requirements:
       const tempFileName = `scene-video-${Date.now()}.mp4`;
       const tempFilePath = path.join(tempDir, tempFileName);
       
+      reportProgress(95, 'Downloading video...');
+      
       await ai.files.download({
         file: video,
         downloadPath: tempFilePath
       });
+      
+      reportProgress(97, 'Uploading to storage...');
       
       // Read the downloaded file and upload to S3
       const videoBuffer = fs.readFileSync(tempFilePath);
@@ -365,13 +399,15 @@ Requirements:
       // Clean up temp file
       fs.unlinkSync(tempFilePath);
 
-      llmCounter.incrementTextToVideo(videoModel, true, durationMs);
+      await llmCounter.incrementTextToVideo(videoModel, true, durationMs);
+      
+      reportProgress(100, 'Complete!');
 
       return { videoUrl: s3Url };
     } catch (error) {
       const durationMs = Date.now() - startTime;
       console.error('❌ Error generating scene video:', error);
-      llmCounter.incrementTextToVideo(videoModel || 'unknown', false, durationMs, error instanceof Error ? error.message : 'Unknown error');
+      await llmCounter.incrementTextToVideo(videoModel || 'unknown', false, durationMs, error instanceof Error ? error.message : 'Unknown error');
       return null;
     }
   }
@@ -407,7 +443,7 @@ Requirements:
       console.log('✅ Received response from Gemini API');
       
       // Track successful text-to-text operation
-      llmCounter.incrementTextToText(modelName, true, durationMs);
+      await llmCounter.incrementTextToText(modelName, true, durationMs);
       
       return text;
     } catch (error) {
@@ -415,7 +451,7 @@ Requirements:
       console.error('❌ Error calling Gemini API:', error);
       
       // Track failed text-to-text operation
-      llmCounter.incrementTextToText(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
+      await llmCounter.incrementTextToText(modelName, false, durationMs, error instanceof Error ? error.message : 'Unknown error');
       
       throw new Error(
         error instanceof Error
