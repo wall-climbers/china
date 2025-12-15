@@ -5,7 +5,7 @@ import axios from 'axios';
 import { 
   ArrowLeft, ArrowRight, Check, Loader, Users, Image, Film, 
   Wand2, GripVertical, Play, Download, RefreshCw, Plus, Clock, 
-  AlertTriangle, X, FileText, Edit2, Save, Filter, Search, ArrowUpDown
+  AlertTriangle, X, FileText, Edit2, Save, Filter, Search, ArrowUpDown, Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -142,6 +142,11 @@ const CreativeStudioPage = () => {
   // Edit title state
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editTitleValue, setEditTitleValue] = useState('');
+  
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<UgcSession | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Filter and sort state
   const [searchQuery, setSearchQuery] = useState('');
@@ -1235,6 +1240,46 @@ const CreativeStudioPage = () => {
     return filtered;
   };
 
+  const handleDeleteClick = (session: UgcSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSessionToDelete(session);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!sessionToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await axios.delete(`/api/ugc/sessions/${sessionToDelete.id}`, {
+        withCredentials: true
+      });
+
+      // Update local state
+      setAllSessions(allSessions.filter(s => s.id !== sessionToDelete.id));
+
+      // If the deleted session is the current one, redirect to session picker
+      if (session?.id === sessionToDelete.id) {
+        setSession(null);
+        setShowSessionPicker(true);
+      }
+
+      toast.success('Session deleted successfully');
+      setShowDeleteConfirm(false);
+      setSessionToDelete(null);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      toast.error('Failed to delete session');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+    setSessionToDelete(null);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -1429,12 +1474,22 @@ const CreativeStudioPage = () => {
                             </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => loadSessionData(s)}
-                          className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors flex-shrink-0"
-                        >
-                          <ArrowRight className="h-5 w-5" />
-                        </button>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={(e) => handleDeleteClick(s, e)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete session"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={() => loadSessionData(s)}
+                            className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                            title="Open session"
+                          >
+                            <ArrowRight className="h-5 w-5" />
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -1479,6 +1534,50 @@ const CreativeStudioPage = () => {
                 className="flex-1 px-4 py-2 bg-yellow-500 text-white font-medium rounded-lg hover:bg-yellow-600 transition-all"
               >
                 Yes, Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && sessionToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <AlertTriangle className="h-6 w-6" />
+              <h3 className="text-lg font-semibold text-gray-900">Delete Session?</h3>
+            </div>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete <span className="text-gray-900 font-medium">"{getSessionDisplayTitle(sessionToDelete)}"</span>?
+            </p>
+            <p className="text-sm text-gray-600 mb-6">
+              This action cannot be undone. All generated content including videos will be permanently deleted.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDeleteCancel}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </>
+                )}
               </button>
             </div>
           </div>
