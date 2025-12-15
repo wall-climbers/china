@@ -123,3 +123,39 @@ model UgcSession {
 
   @@map("ugc_sessions")
 }
+
+// LLM API Usage Tracking (for admin dashboard)
+model LlmUsageRecord {
+  id            String   @id @default(uuid())
+  type          String   // 'text-to-text', 'text-to-image', 'text-to-video'
+  model         String   // Model name used (e.g., 'gemini-2.0-flash')
+  promptPreview String?  @map("prompt_preview") // First 100 chars of prompt
+  success       Boolean  @default(true)
+  durationMs    Int?     @map("duration_ms")
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([type])
+  @@index([createdAt])
+  @@map("llm_usage_records")
+}
+
+// Scene Video Generation Jobs (async video generation tracking)
+model SceneVideoJob {
+  id            String   @id @default(uuid())
+  sessionId     String   @map("session_id")
+  sceneIndex    Int      @map("scene_index")
+  status        String   @default("queued") // queued, generating, completed, failed
+  progress      Int      @default(0)        // 0-100 percentage
+  videoUrl      String?  @map("video_url")
+  errorMessage  String?  @map("error_message")
+  prompt        String?                     // The prompt used for generation
+  imageUrl      String?  @map("image_url")  // The source image URL
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([sessionId, sceneIndex])
+  @@index([sessionId])
+  @@index([status])
+  @@map("scene_video_jobs")
+}

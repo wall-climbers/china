@@ -17,6 +17,18 @@ interface Product {
   price: number;
 }
 
+interface SceneImage {
+  url: string;
+  isNew?: boolean;      // marks newly generated images
+  createdAt: Date;
+}
+
+interface SceneVideo {
+  url: string;
+  isNew?: boolean;      // marks newly generated videos
+  createdAt: Date;
+}
+
 interface Scene {
   id: number;
   title: string;
@@ -25,12 +37,46 @@ interface Scene {
   motion: string;
   transitions: string; // original transitions text from LLM
   duration: number;
-  imageUrl?: string;       // generated scene image
+  imageUrl?: string;       // legacy: single image URL (for backward compatibility)
+  images?: SceneImage[];   // array of generated images
+  selectedImageIndex?: number; // index of selected image in images array
   generating?: boolean;    // loading state for image generation
-  videoUrl?: string;       // generated scene video
+  videoUrl?: string;       // legacy: single video URL (for backward compatibility)
+  videos?: SceneVideo[];   // array of generated videos
+  selectedVideoIndex?: number; // index of selected video in videos array
   generatingVideo?: boolean; // loading state for video generation
+  videoProgress?: number;    // 0-100 progress for video generation
+  videoStatus?: 'queued' | 'generating' | 'completed' | 'failed';
+  videoError?: string;       // error message if failed
   included?: boolean;      // whether to include in final video
   transitionType?: 'fade' | 'dissolve' | 'wipeleft' | 'wiperight' | 'slideup' | 'circleopen' | 'none'; // transition to next scene
+}
+
+// Helper to get the selected image URL from a scene
+const getSelectedImageUrl = (scene: Scene): string | undefined => {
+  if (scene.images && scene.images.length > 0) {
+    const selectedIndex = scene.selectedImageIndex ?? 0;
+    return scene.images[selectedIndex]?.url;
+  }
+  return scene.imageUrl; // fallback to legacy field
+};
+
+// Helper to get the selected video URL from a scene
+const getSelectedVideoUrl = (scene: Scene): string | undefined => {
+  if (scene.videos && scene.videos.length > 0) {
+    const selectedIndex = scene.selectedVideoIndex ?? 0;
+    return scene.videos[selectedIndex]?.url;
+  }
+  return scene.videoUrl; // fallback to legacy field
+};
+
+interface SceneVideoJob {
+  id: string;
+  sceneIndex: number;
+  status: 'queued' | 'generating' | 'completed' | 'failed';
+  progress: number;
+  videoUrl?: string;
+  errorMessage?: string;
 }
 
 // Available transitions for video stitching
@@ -133,7 +179,7 @@ const CreativeStudioPage = () => {
     }
   }, [product]);
 
-  // Poll for video progress
+  // Poll for video stitching progress (Step 4)
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (session && currentStep === 4 && videoStatus === 'generating') {
@@ -169,6 +215,31 @@ const CreativeStudioPage = () => {
     }
     return () => clearInterval(interval);
   }, [session, currentStep, videoStatus]);
+
+  // Poll for scene video generation status (Step 3)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    // Check if any scene is currently generating
+    const hasGeneratingScenes = scenes.some(
+      s => s.generatingVideo || s.videoStatus === 'queued' || s.videoStatus === 'generating'
+    );
+    
+    if (session && currentStep === 3 && hasGeneratingScenes) {
+      // Poll immediately, then every 3 seconds
+      pollSceneVideoStatus();
+      interval = setInterval(pollSceneVideoStatus, 3000);
+    }
+    
+    return () => clearInterval(interval);
+  }, [session, currentStep, scenes.some(s => s.generatingVideo || s.videoStatus === 'queued' || s.videoStatus === 'generating')]);
+
+  // Also poll on page load if we're on step 3 to restore generating state
+  useEffect(() => {
+    if (session && currentStep === 3) {
+      pollSceneVideoStatus();
+    }
+  }, [session, currentStep]);
 
   const fetchProduct = async () => {
     try {
@@ -266,17 +337,53 @@ const CreativeStudioPage = () => {
     const originalScenes = normalized.scenes || [];
     const editedScenes = normalized.editedScenes || [];
     
+    // Helper to migrate legacy imageUrl/videoUrl to arrays
+    const migrateSceneMedia = (scene: Scene): Scene => {
+      let migrated = { ...scene };
+      
+      // Migrate imageUrl to images array
+      if (scene.imageUrl && (!scene.images || scene.images.length === 0)) {
+        migrated = {
+          ...migrated,
+          images: [{
+            url: scene.imageUrl,
+            isNew: false,
+            createdAt: new Date()
+          }],
+          selectedImageIndex: 0
+        };
+      }
+      
+      // Migrate videoUrl to videos array
+      if (scene.videoUrl && (!scene.videos || scene.videos.length === 0)) {
+        migrated = {
+          ...migrated,
+          videos: [{
+            url: scene.videoUrl,
+            isNew: false,
+            createdAt: new Date()
+          }],
+          selectedVideoIndex: 0
+        };
+      }
+      
+      return migrated;
+    };
+    
     if (editedScenes.length > 0) {
       // Merge edited scenes with original to preserve dialogue, motion, transitions
-      const mergedScenes = editedScenes.map((edited: Scene, index: number) => ({
-        // Start with original scene data (has dialogue, motion, transitions from LLM)
-        ...(originalScenes[index] || {}),
-        // Override with edited values (user's changes to prompt, etc.)
-        ...edited,
-      }));
+      const mergedScenes = editedScenes.map((edited: Scene, index: number) => {
+        const merged = {
+          // Start with original scene data (has dialogue, motion, transitions from LLM)
+          ...(originalScenes[index] || {}),
+          // Override with edited values (user's changes to prompt, etc.)
+          ...edited,
+        };
+        return migrateSceneMedia(merged);
+      });
       setScenes(mergedScenes);
     } else if (originalScenes.length > 0) {
-      setScenes(originalScenes);
+      setScenes(originalScenes.map(migrateSceneMedia));
     }
     if (normalized.generatedCharacters?.length > 0) setCharacters(normalized.generatedCharacters);
     if (normalized.selectedCharacter) setSelectedCharacter(normalized.selectedCharacter);
@@ -573,8 +680,8 @@ const CreativeStudioPage = () => {
   const handleGenerateVideo = async () => {
     if (!session) return;
     
-    // Check if we have any scenes with videos
-    const scenesWithVideos = scenes.filter(s => s.videoUrl && s.included !== false);
+    // Check if we have any scenes with videos (using selected video)
+    const scenesWithVideos = scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false);
     if (scenesWithVideos.length === 0) {
       toast.error('Please generate videos for at least one scene first');
       return;
@@ -587,11 +694,11 @@ const CreativeStudioPage = () => {
     setStitchingMessage('Preparing to stitch videos...');
     
     try {
-      // Prepare scenes data with video URLs and transitions
+      // Prepare scenes data with selected video URLs and transitions
       const scenesData = scenes
         .filter(s => s.included !== false)
-        .map((scene, index) => ({
-          videoUrl: scene.videoUrl,
+        .map((scene) => ({
+          videoUrl: getSelectedVideoUrl(scene),
           transition: scene.transitionType || 'fade',
           duration: scene.duration || 4,
           includeInFinal: scene.included !== false
@@ -705,11 +812,26 @@ const CreativeStudioPage = () => {
         { withCredentials: true }
       );
 
-      // Update scene with generated image
+      // Mark existing images as not new
+      const existingImages = (scene.images || []).map(img => ({ ...img, isNew: false }));
+      
+      // Add new image to the beginning of the array
+      const newImage: SceneImage = {
+        url: response.data.imageUrl,
+        isNew: true,
+        createdAt: new Date()
+      };
+      
+      const updatedImages = [newImage, ...existingImages];
+      const newSelectedIndex = 0; // Select the new image (now at the beginning)
+
+      // Update scene with new image added to array
       const updatedScenes = [...scenes];
       updatedScenes[index] = { 
         ...updatedScenes[index], 
-        imageUrl: response.data.imageUrl,
+        images: updatedImages,
+        selectedImageIndex: newSelectedIndex,
+        imageUrl: response.data.imageUrl, // Keep for backward compatibility
         generating: false 
       };
       setScenes(updatedScenes);
@@ -728,18 +850,48 @@ const CreativeStudioPage = () => {
     }
   };
 
+  const handleSelectSceneImage = (sceneIndex: number, imageIndex: number) => {
+    const updatedScenes = [...scenes];
+    updatedScenes[sceneIndex] = {
+      ...updatedScenes[sceneIndex],
+      selectedImageIndex: imageIndex,
+      imageUrl: updatedScenes[sceneIndex].images?.[imageIndex]?.url // Update legacy field
+    };
+    setScenes(updatedScenes);
+    handleUpdateScenes(updatedScenes);
+  };
+
+  const handleSelectSceneVideo = (sceneIndex: number, videoIndex: number) => {
+    const updatedScenes = [...scenes];
+    updatedScenes[sceneIndex] = {
+      ...updatedScenes[sceneIndex],
+      selectedVideoIndex: videoIndex,
+      videoUrl: updatedScenes[sceneIndex].videos?.[videoIndex]?.url // Update legacy field
+    };
+    setScenes(updatedScenes);
+    handleUpdateScenes(updatedScenes);
+  };
+
   const handleGenerateSceneVideo = async (index: number) => {
     if (!session) return;
     
     const scene = scenes[index];
-    if (!scene.imageUrl) {
+    const selectedImageUrl = getSelectedImageUrl(scene);
+    
+    if (!selectedImageUrl) {
       toast.error('Please generate a scene image first');
       return;
     }
 
     // Set generating state for video
     const newScenes = [...scenes];
-    newScenes[index] = { ...newScenes[index], generatingVideo: true };
+    newScenes[index] = { 
+      ...newScenes[index], 
+      generatingVideo: true,
+      videoStatus: 'queued',
+      videoProgress: 0,
+      videoError: undefined
+    };
     setScenes(newScenes);
 
     try {
@@ -751,31 +903,151 @@ const CreativeStudioPage = () => {
         { 
           sceneIndex: index,
           prompt: videoPrompt,
-          imageUrl: scene.imageUrl
+          imageUrl: selectedImageUrl
         },
         { withCredentials: true }
       );
 
-      // Update scene with generated video
-      const updatedScenes = [...scenes];
-      updatedScenes[index] = { 
-        ...updatedScenes[index], 
-        videoUrl: response.data.videoUrl,
-        generatingVideo: false 
-      };
-      setScenes(updatedScenes);
-      
-      // Save to backend (pass updated scenes to avoid stale closure)
-      await handleUpdateScenes(updatedScenes);
-      toast.success(`Scene ${index + 1} video generated!`);
+      // Job started - polling will pick up the status
+      // Don't reset generatingVideo here - let polling handle it
     } catch (error) {
       console.error('Error generating scene video:', error);
-      toast.error('Failed to generate scene video');
+      toast.error('Failed to start scene video generation');
       
       // Reset generating state
       const updatedScenes = [...scenes];
-      updatedScenes[index] = { ...updatedScenes[index], generatingVideo: false };
+      updatedScenes[index] = { 
+        ...updatedScenes[index], 
+        generatingVideo: false,
+        videoStatus: 'failed',
+        videoError: 'Failed to start generation'
+      };
       setScenes(updatedScenes);
+    }
+  };
+
+  // Poll for scene video generation status
+  const pollSceneVideoStatus = async () => {
+    if (!session) return;
+    
+    try {
+      const response = await axios.get(
+        `/api/ugc/sessions/${session.id}/scene-video-status`,
+        { withCredentials: true }
+      );
+      
+      const jobs: SceneVideoJob[] = response.data.jobs || [];
+      
+      if (jobs.length === 0) return;
+      
+      // Update scenes with job status
+      setScenes(currentScenes => {
+        const updatedScenes = [...currentScenes];
+        let hasChanges = false;
+        
+        for (const job of jobs) {
+          const sceneIndex = job.sceneIndex;
+          if (sceneIndex >= 0 && sceneIndex < updatedScenes.length) {
+            const scene = updatedScenes[sceneIndex];
+            const wasGenerating = scene.generatingVideo || scene.videoStatus === 'generating' || scene.videoStatus === 'queued';
+            
+            // Check if this video URL is already in the videos array
+            const existingVideos = scene.videos || [];
+            const videoAlreadyAdded = job.videoUrl && existingVideos.some(v => v.url === job.videoUrl);
+            
+            // Add new video to array when job completes
+            let newVideos = existingVideos;
+            let newSelectedIndex = scene.selectedVideoIndex ?? 0;
+            
+            if (wasGenerating && job.status === 'completed' && job.videoUrl && !videoAlreadyAdded) {
+              // Mark existing videos as not new
+              const updatedExisting = existingVideos.map(v => ({ ...v, isNew: false }));
+              // Add new video to the beginning of the array
+              const newVideo: SceneVideo = {
+                url: job.videoUrl,
+                isNew: true,
+                createdAt: new Date()
+              };
+              newVideos = [newVideo, ...updatedExisting];
+              newSelectedIndex = 0; // Select the new video (now at the beginning)
+            }
+            
+            // Update scene with job status
+            updatedScenes[sceneIndex] = {
+              ...scene,
+              videoStatus: job.status,
+              videoProgress: job.progress,
+              generatingVideo: job.status === 'queued' || job.status === 'generating',
+              videos: newVideos,
+              selectedVideoIndex: newSelectedIndex,
+              videoUrl: job.videoUrl || scene.videoUrl, // Keep legacy field updated
+              videoError: job.errorMessage
+            };
+            
+            // Show toast on completion
+            if (wasGenerating && job.status === 'completed' && job.videoUrl && !videoAlreadyAdded) {
+              toast.success(`Scene ${sceneIndex + 1} video generated!`);
+              hasChanges = true;
+            } else if (wasGenerating && job.status === 'failed') {
+              toast.error(`Scene ${sceneIndex + 1} video failed: ${job.errorMessage || 'Unknown error'}`);
+              hasChanges = true;
+            }
+          }
+        }
+        
+        return updatedScenes;
+      });
+    } catch (error) {
+      console.error('Error polling scene video status:', error);
+    }
+  };
+
+  // Generate all scene videos at once
+  const handleGenerateAllSceneVideos = async () => {
+    if (!session) return;
+    
+    // Get scenes that have images and are included (can regenerate even if has videos)
+    const scenesToGenerate = scenes.filter(s => getSelectedImageUrl(s) && s.included !== false);
+    
+    if (scenesToGenerate.length === 0) {
+      toast.error('No scenes ready for video generation. Generate scene images first.');
+      return;
+    }
+
+    // Set all to generating
+    const newScenes = scenes.map(scene => {
+      if (scene.imageUrl && !scene.videoUrl && scene.included !== false) {
+        return {
+          ...scene,
+          generatingVideo: true,
+          videoStatus: 'queued' as const,
+          videoProgress: 0,
+          videoError: undefined
+        };
+      }
+      return scene;
+    });
+    setScenes(newScenes);
+
+    try {
+      const response = await axios.post(
+        `/api/ugc/sessions/${session.id}/generate-all-scene-videos`,
+        { scenes: scenesToGenerate },
+        { withCredentials: true }
+      );
+
+      toast.success(`Started video generation for ${response.data.jobs?.length || scenesToGenerate.length} scenes`);
+    } catch (error) {
+      console.error('Error starting batch video generation:', error);
+      toast.error('Failed to start batch video generation');
+      
+      // Reset generating states
+      setScenes(scenes.map(scene => ({
+        ...scene,
+        generatingVideo: false,
+        videoStatus: undefined,
+        videoProgress: undefined
+      })));
     }
   };
 
@@ -1481,78 +1753,269 @@ const CreativeStudioPage = () => {
                           </div>
                         </div>
 
-                        {/* Scene Image & Generate Button */}
+                        {/* Scene Image & Video Section */}
                         <div className="pt-4 border-t border-gray-600">
-                          <div className="flex items-start gap-4">
-                            {/* Generated Image */}
-                            {scene.imageUrl && (
-                              <div className="w-32 h-32 rounded-lg overflow-hidden flex-shrink-0 border border-gray-600">
-                                <img 
-                                  src={scene.imageUrl} 
-                                  alt={`Scene ${index + 1}`} 
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            )}
+                          <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-start">
                             
-                            {/* Generate Buttons */}
-                            <div className="flex-1 space-y-3">
-                              {/* Generate Scene Image Button */}
-                              <div>
-                                <button
-                                  onClick={() => handleGenerateSceneImage(index)}
-                                  disabled={scene.generating || !scene.prompt}
-                                  className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                                >
-                                  {scene.generating ? (
-                                    <>
-                                      <Loader className="h-4 w-4 animate-spin" />
-                                      Generating Image...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Wand2 className="h-4 w-4" />
-                                      {scene.imageUrl ? 'Regenerate Image' : 'Generate Image'}
-                                    </>
-                                  )}
-                                </button>
+                            {/* LEFT: Image Section */}
+                            <div className="space-y-3 flex flex-col items-center">
+                              <div className="flex items-center gap-2 text-sm font-medium text-purple-400">
+                                <Wand2 className="h-4 w-4" />
+                                Scene Image
                               </div>
                               
-                              {/* Generate Scene Video Button - only enabled after image exists */}
-                              <div>
-                                <button
-                                  onClick={() => handleGenerateSceneVideo(index)}
-                                  disabled={!scene.imageUrl || scene.generatingVideo}
-                                  className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:from-blue-600 hover:to-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                                >
-                                  {scene.generatingVideo ? (
-                                    <>
-                                      <Loader className="h-4 w-4 animate-spin" />
-                                      Generating Video...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Film className="h-4 w-4" />
-                                      {scene.videoUrl ? 'Regenerate Video' : 'Generate Video'}
-                                    </>
+                              {/* Image Gallery - Multiple images with selection */}
+                              {scene.images && scene.images.length > 0 ? (
+                                <div className="space-y-2 w-full">
+                                  {/* Selected Image Preview */}
+                                  <div className="min-h-32 max-h-48 bg-gray-800 rounded-lg overflow-hidden flex items-center justify-center">
+                                    <img 
+                                      src={getSelectedImageUrl(scene)} 
+                                      alt={`Scene ${index + 1} - Selected`} 
+                                      className="max-h-48 max-w-full h-auto w-auto object-contain"
+                                    />
+                                  </div>
+                                  
+                                  {/* Image Thumbnails */}
+                                  {scene.images.length > 1 && (
+                                    <div className="flex gap-2 overflow-x-auto pb-1">
+                                      {scene.images.map((img, imgIndex) => (
+                                        <button
+                                          key={imgIndex}
+                                          onClick={() => handleSelectSceneImage(index, imgIndex)}
+                                          className={`relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                                            (scene.selectedImageIndex ?? 0) === imgIndex
+                                              ? 'border-purple-500 ring-2 ring-purple-500/50'
+                                              : 'border-gray-600 hover:border-gray-500'
+                                          }`}
+                                        >
+                                          <img 
+                                            src={img.url} 
+                                            alt={`Variant ${imgIndex + 1}`}
+                                            className="w-full h-full object-cover"
+                                          />
+                                          {/* Selected checkmark */}
+                                          {(scene.selectedImageIndex ?? 0) === imgIndex && (
+                                            <div className="absolute bottom-0 right-0 bg-purple-500 p-0.5 rounded-tl">
+                                              <Check className="h-3 w-3 text-white" />
+                                            </div>
+                                          )}
+                                        </button>
+                                      ))}
+                                    </div>
                                   )}
-                                </button>
-                                {!scene.imageUrl && (
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Generate scene image first
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Show video preview if generated */}
-                              {scene.videoUrl && (
-                                <div className="mt-2">
-                                  <video 
-                                    src={scene.videoUrl} 
-                                    controls 
-                                    className="w-full max-w-xs rounded-lg border border-gray-600"
-                                  />
+                                  
+                                  {/* Selection hint */}
+                                  {scene.images.length > 1 && (
+                                    <p className="text-xs text-gray-500 text-center">
+                                      {scene.images.length} images • Click to select
+                                    </p>
+                                  )}
+                                  
+                                  {/* Generate Another Button */}
+                                  <button
+                                    onClick={() => handleGenerateSceneImage(index)}
+                                    disabled={scene.generating || !scene.prompt || scene.generatingVideo}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                  >
+                                    {scene.generating ? (
+                                      <>
+                                        <Loader className="h-4 w-4 animate-spin" />
+                                        Generating...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Wand2 className="h-4 w-4" />
+                                        Generate Another
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
+                              ) : (
+                                <div className="min-h-48 bg-gray-800 rounded-lg overflow-hidden border border-gray-600 flex flex-col items-center justify-center p-6">
+                                  <Wand2 className="h-10 w-10 text-gray-500 mb-3 opacity-50" />
+                                  <p className="text-gray-400 text-sm mb-4">No image generated</p>
+                                  {/* Generate Image Button - inside the empty state */}
+                                  <button
+                                    onClick={() => handleGenerateSceneImage(index)}
+                                    disabled={scene.generating || !scene.prompt || scene.generatingVideo}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                  >
+                                    {scene.generating ? (
+                                      <>
+                                        <Loader className="h-4 w-4 animate-spin" />
+                                        Generating...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Wand2 className="h-4 w-4" />
+                                        Generate Image
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                              {scene.generatingVideo && (
+                                <p className="text-xs text-gray-500 text-center">
+                                  Disabled while video is generating
+                                </p>
+                              )}
+                            </div>
+
+                            {/* CENTER: Arrow Divider */}
+                            <div className="flex flex-col items-center justify-center h-full py-8">
+                              <div className="w-px h-full bg-gradient-to-b from-transparent via-gray-600 to-transparent" />
+                              <div className="my-2 flex items-center justify-center w-10 h-10 rounded-full bg-gray-700 border border-gray-600">
+                                <ArrowRight className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <div className="w-px h-full bg-gradient-to-b from-transparent via-gray-600 to-transparent" />
+                            </div>
+
+                            {/* RIGHT: Video Section */}
+                            <div className="space-y-3 flex flex-col items-center">
+                              <div className="flex items-center gap-2 text-sm font-medium text-cyan-400">
+                                <Film className="h-4 w-4" />
+                                Scene Video
+                              </div>
+                              
+                              {/* Video Gallery - Multiple videos with selection */}
+                              {scene.videos && scene.videos.length > 0 ? (
+                                <div className="space-y-2 w-full">
+                                  {/* Selected Video Preview */}
+                                  <div className="min-h-32 max-h-48 bg-gray-800 rounded-lg overflow-hidden flex items-center justify-center">
+                                    <video 
+                                      src={getSelectedVideoUrl(scene)} 
+                                      controls 
+                                      className="max-h-48 max-w-full h-auto w-auto object-contain"
+                                    />
+                                  </div>
+                                  
+                                  {/* Video Thumbnails */}
+                                  {scene.videos.length > 1 && (
+                                    <div className="flex gap-2 overflow-x-auto pb-1">
+                                      {scene.videos.map((vid, vidIndex) => (
+                                        <button
+                                          key={vidIndex}
+                                          onClick={() => handleSelectSceneVideo(index, vidIndex)}
+                                          className={`relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                                            (scene.selectedVideoIndex ?? 0) === vidIndex
+                                              ? 'border-cyan-500 ring-2 ring-cyan-500/50'
+                                              : 'border-gray-600 hover:border-gray-500'
+                                          }`}
+                                        >
+                                          <video 
+                                            src={vid.url} 
+                                            className="w-full h-full object-cover"
+                                            muted
+                                          />
+                                          {/* Play icon overlay */}
+                                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                            <Film className="h-4 w-4 text-white/80" />
+                                          </div>
+                                          {/* Selected checkmark */}
+                                          {(scene.selectedVideoIndex ?? 0) === vidIndex && (
+                                            <div className="absolute bottom-0 right-0 bg-cyan-500 p-0.5 rounded-tl">
+                                              <Check className="h-3 w-3 text-white" />
+                                            </div>
+                                          )}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Selection hint */}
+                                  {scene.videos.length > 1 && !scene.generatingVideo && (
+                                    <p className="text-xs text-gray-500 text-center">
+                                      {scene.videos.length} videos • Click to select for final video
+                                    </p>
+                                  )}
+                                  
+                                  {/* Generation Progress - shown below existing videos */}
+                                  {scene.generatingVideo ? (
+                                    <div className="bg-gray-800/80 rounded-lg border border-cyan-500/50 p-3">
+                                      <div className="flex items-center gap-3">
+                                        <Loader className="h-5 w-5 text-cyan-400 animate-spin flex-shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-gray-300 text-sm font-medium">
+                                            {scene.videoStatus === 'queued' ? 'Queued...' : `Generating new video ${scene.videoProgress || 0}%`}
+                                          </p>
+                                          <div className="mt-1.5">
+                                            <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                              <div 
+                                                className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-500"
+                                                style={{ width: `${scene.videoProgress || 0}%` }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Generate Another Button */
+                                    <button
+                                      onClick={() => handleGenerateSceneVideo(index)}
+                                      disabled={!getSelectedImageUrl(scene) || scene.generatingVideo}
+                                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    >
+                                      <Film className="h-4 w-4" />
+                                      Generate Another
+                                    </button>
+                                  )}
+                                </div>
+                              ) : scene.generatingVideo ? (
+                                <div className="min-h-32 bg-gray-800 rounded-lg border border-gray-600 flex items-center justify-center">
+                                  <div className="text-center p-6 min-w-40">
+                                    <Loader className="h-8 w-8 mx-auto mb-3 text-cyan-400 animate-spin" />
+                                    <p className="text-gray-300 text-sm font-medium">
+                                      {scene.videoStatus === 'queued' ? 'Queued...' : `Generating ${scene.videoProgress || 0}%`}
+                                    </p>
+                                    {/* Progress bar */}
+                                    <div className="mt-3">
+                                      <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                        <div 
+                                          className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-500"
+                                          style={{ width: `${scene.videoProgress || 0}%` }}
+                                        />
+                                      </div>
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        {scene.videoStatus === 'queued' && '⏳ Waiting in queue...'}
+                                        {scene.videoStatus === 'generating' && '🎬 Processing...'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="min-h-48 bg-gray-800 rounded-lg border border-gray-600 flex flex-col items-center justify-center p-6">
+                                  <Film className="h-10 w-10 text-gray-500 mb-3 opacity-50" />
+                                  <p className="text-gray-400 text-sm mb-4">
+                                    {getSelectedImageUrl(scene) ? 'Ready to generate video' : 'Generate image first'}
+                                  </p>
+                                  {/* Generate Video Button - inside the empty state */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={() => handleGenerateSceneVideo(index)}
+                                      disabled={!getSelectedImageUrl(scene) || scene.generatingVideo}
+                                      className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:from-blue-600 hover:to-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    >
+                                      <Film className="h-4 w-4" />
+                                      Generate Video
+                                    </button>
+                                    {/* Custom tooltip for disabled state */}
+                                    {!getSelectedImageUrl(scene) && (
+                                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-gray-300 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700 shadow-lg">
+                                        Generate a scene image first
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Error message */}
+                              {scene.videoStatus === 'failed' && scene.videoError && (
+                                <p className="text-xs text-red-400 text-center">
+                                  ❌ {scene.videoError}
+                                </p>
                               )}
                             </div>
                           </div>
@@ -1563,29 +2026,65 @@ const CreativeStudioPage = () => {
                 ))}
               </div>
 
-              {/* Summary & Generate Button */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-700">
-                <div className="text-sm text-gray-400">
-                  <span className="text-green-400 font-medium">
-                    {scenes.filter(s => s.videoUrl && s.included !== false).length}
-                  </span>
-                  {' / '}
-                  <span>{scenes.filter(s => s.included !== false).length}</span>
-                  {' scenes ready for stitching'}
-                  {scenes.filter(s => s.videoUrl && s.included !== false).length > 0 && (
-                    <span className="ml-3 text-gray-500">
-                      (Transitions: {scenes.filter(s => s.included !== false).map(s => s.transitionType || 'fade').slice(0, -1).join(' → ')})
+              {/* Summary & Action Buttons */}
+              <div className="pt-4 border-t border-gray-700 space-y-4">
+                {/* Status Summary */}
+                <div className="flex items-center justify-between text-sm">
+                  <div className="text-gray-400">
+                    <span className="text-green-400 font-medium">
+                      {scenes.filter(s => s.videoUrl && s.included !== false).length}
                     </span>
-                  )}
+                    {' / '}
+                    <span>{scenes.filter(s => s.included !== false).length}</span>
+                    {' scenes have videos'}
+                    {scenes.some(s => s.generatingVideo) && (
+                      <span className="ml-3 text-blue-400">
+                        ({scenes.filter(s => s.generatingVideo).length} generating...)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-gray-500 text-xs">
+                    {scenes.filter(s => s.imageUrl && !s.videoUrl && s.included !== false).length} scenes ready for video generation
+                  </div>
                 </div>
-                <button
-                  onClick={handleGenerateVideo}
-                  disabled={scenes.filter(s => s.videoUrl && s.included !== false).length === 0}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Play className="h-5 w-5" />
-                  Stitch Videos ({scenes.filter(s => s.videoUrl && s.included !== false).length} scenes)
-                </button>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-between">
+                  {/* Generate All Videos Button */}
+                  <button
+                    onClick={handleGenerateAllSceneVideos}
+                    disabled={
+                      scenes.filter(s => s.imageUrl && !s.videoUrl && s.included !== false).length === 0 ||
+                      scenes.some(s => s.generatingVideo)
+                    }
+                    className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:from-blue-600 hover:to-cyan-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {scenes.some(s => s.generatingVideo) ? (
+                      <>
+                        <Loader className="h-4 w-4 animate-spin" />
+                        Generating {scenes.filter(s => s.generatingVideo).length} videos...
+                      </>
+                    ) : (
+                      <>
+                        <Film className="h-4 w-4" />
+                        Generate All Videos ({scenes.filter(s => s.imageUrl && !s.videoUrl && s.included !== false).length})
+                      </>
+                    )}
+                  </button>
+
+                  {/* Stitch Videos Button */}
+                  <button
+                    onClick={handleGenerateVideo}
+                    disabled={
+                      scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length === 0 ||
+                      scenes.some(s => s.generatingVideo)
+                    }
+                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Play className="h-5 w-5" />
+                    Stitch Videos ({scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length} scenes)
+                  </button>
+                </div>
               </div>
             </div>
           )}

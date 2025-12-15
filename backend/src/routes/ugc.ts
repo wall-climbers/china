@@ -698,7 +698,10 @@ Requirements:
   }
 });
 
-// Step 3: Generate scene video
+// In-memory fallback for scene video jobs
+const inMemorySceneVideoJobs = new Map<string, any[]>();
+
+// Step 3: Generate scene video (ASYNC - returns immediately, processes in background)
 router.post('/sessions/:id/generate-scene-video', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const { sceneIndex, prompt, imageUrl } = req.body;
@@ -709,37 +712,347 @@ router.post('/sessions/:id/generate-scene-video', isAuthenticated, async (req, r
       return res.status(400).json({ error: 'Scene image is required. Generate the scene image first.' });
     }
 
-    console.log(`🎬 Generating scene video for scene ${sceneIndex + 1}...`);
+    if (sceneIndex === undefined || sceneIndex === null) {
+      return res.status(400).json({ error: 'Scene index is required.' });
+    }
+
+    console.log(`🎬 Starting async scene video generation for scene ${sceneIndex + 1}...`);
+
+    // Create or update job in database
+    let jobId: string;
+    try {
+      // Try to upsert the job
+      const existingJobs = await prisma.$queryRaw<any[]>`
+        SELECT id FROM scene_video_jobs 
+        WHERE session_id = ${id} AND scene_index = ${sceneIndex}
+      `;
+
+      if (existingJobs.length > 0) {
+        jobId = existingJobs[0].id;
+        await prisma.$executeRaw`
+          UPDATE scene_video_jobs 
+          SET status = 'queued', 
+              progress = 0, 
+              video_url = NULL, 
+              error_message = NULL,
+              prompt = ${prompt},
+              image_url = ${imageUrl},
+              updated_at = NOW()
+          WHERE id = ${jobId}
+        `;
+      } else {
+        const newJobs = await prisma.$queryRaw<any[]>`
+          INSERT INTO scene_video_jobs (id, session_id, scene_index, status, progress, prompt, image_url, created_at, updated_at)
+          VALUES (gen_random_uuid(), ${id}, ${sceneIndex}, 'queued', 0, ${prompt}, ${imageUrl}, NOW(), NOW())
+          RETURNING id
+        `;
+        jobId = newJobs[0].id;
+      }
+    } catch (dbError) {
+      // Fallback to in-memory
+      console.log('⚠️ Database unavailable, using in-memory storage for job');
+      jobId = `job_${Date.now()}_${sceneIndex}`;
+      const sessionJobs = inMemorySceneVideoJobs.get(id) || [];
+      const existingJobIndex = sessionJobs.findIndex(j => j.sceneIndex === sceneIndex);
+      const job = {
+        id: jobId,
+        sessionId: id,
+        sceneIndex,
+        status: 'queued',
+        progress: 0,
+        videoUrl: null,
+        errorMessage: null,
+        prompt,
+        imageUrl,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      if (existingJobIndex >= 0) {
+        jobId = sessionJobs[existingJobIndex].id;
+        sessionJobs[existingJobIndex] = { ...job, id: jobId };
+      } else {
+        sessionJobs.push(job);
+      }
+      inMemorySceneVideoJobs.set(id, sessionJobs);
+    }
+
+    // Return immediately with job info
+    res.json({ 
+      success: true, 
+      jobId,
+      sceneIndex,
+      status: 'queued',
+      message: 'Video generation started. Poll for status.'
+    });
+
+    // Process video generation in background
+    processSceneVideoJob(id, sceneIndex, jobId, prompt, imageUrl);
+
+  } catch (error) {
+    console.error('Error starting scene video generation:', error);
+    res.status(500).json({ error: 'Failed to start scene video generation' });
+  }
+});
+
+// Background job processor for scene video generation
+async function processSceneVideoJob(
+  sessionId: string, 
+  sceneIndex: number, 
+  jobId: string, 
+  prompt: string, 
+  imageUrl: string
+) {
+  try {
+    // Update status to 'generating'
+    await updateJobStatus(sessionId, sceneIndex, 'generating', 10);
+
+    console.log(`🎬 [Job ${jobId}] Generating scene video for scene ${sceneIndex + 1}...`);
     console.log(`   Scene image: ${imageUrl.substring(0, 50)}...`);
     console.log(`   Prompt: ${prompt.substring(0, 100)}...`);
 
     // Fetch the scene image as base64
     const sceneImage = await fetchImageAsBase64(imageUrl);
     if (!sceneImage) {
-      return res.status(400).json({ error: 'Failed to fetch scene image' });
+      await updateJobStatus(sessionId, sceneIndex, 'failed', 0, null, 'Failed to fetch scene image');
+      return;
     }
 
+    await updateJobStatus(sessionId, sceneIndex, 'generating', 30);
+
     // Generate video using the scene image as starting frame
+    // Pass a progress callback to get real-time updates from the LLM service
     const videoResult = await llmService.generateSceneVideo({
       imageBase64: sceneImage.base64,
       imageMimeType: sceneImage.mimeType,
-      prompt: prompt
+      prompt: prompt,
+      onProgress: async (progress: number, message: string) => {
+        // Update job status with real progress from Gemini polling
+        console.log(`   [Job ${jobId}] Progress: ${progress}% - ${message}`);
+        await updateJobStatus(sessionId, sceneIndex, 'generating', progress);
+      }
     });
 
     if (!videoResult) {
-      return res.status(500).json({ error: 'Failed to generate scene video' });
+      await updateJobStatus(sessionId, sceneIndex, 'failed', 0, null, 'Failed to generate video');
+      return;
     }
 
-    console.log(`✅ Scene video generated: ${videoResult.videoUrl}`);
+    console.log(`✅ [Job ${jobId}] Scene video generated: ${videoResult.videoUrl}`);
 
-    res.json({ 
-      success: true, 
-      sceneIndex,
-      videoUrl: videoResult.videoUrl
-    });
+    // Update job with completed status and video URL
+    await updateJobStatus(sessionId, sceneIndex, 'completed', 100, videoResult.videoUrl);
+
+    // Also update the scene in the session's editedScenes
+    await updateSessionSceneVideoUrl(sessionId, sceneIndex, videoResult.videoUrl);
+
   } catch (error) {
-    console.error('Error generating scene video:', error);
-    res.status(500).json({ error: 'Failed to generate scene video' });
+    console.error(`❌ [Job ${jobId}] Error generating scene video:`, error);
+    await updateJobStatus(
+      sessionId, 
+      sceneIndex, 
+      'failed', 
+      0, 
+      null, 
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+  }
+}
+
+// Helper to update job status in DB or in-memory
+async function updateJobStatus(
+  sessionId: string,
+  sceneIndex: number,
+  status: string,
+  progress: number,
+  videoUrl?: string | null,
+  errorMessage?: string | null
+) {
+  try {
+    await prisma.$executeRaw`
+      UPDATE scene_video_jobs 
+      SET status = ${status}, 
+          progress = ${progress}, 
+          video_url = ${videoUrl || null},
+          error_message = ${errorMessage || null},
+          updated_at = NOW()
+      WHERE session_id = ${sessionId} AND scene_index = ${sceneIndex}
+    `;
+  } catch {
+    // Fallback to in-memory
+    const sessionJobs = inMemorySceneVideoJobs.get(sessionId) || [];
+    const jobIndex = sessionJobs.findIndex(j => j.sceneIndex === sceneIndex);
+    if (jobIndex >= 0) {
+      sessionJobs[jobIndex] = {
+        ...sessionJobs[jobIndex],
+        status,
+        progress,
+        videoUrl: videoUrl || null,
+        errorMessage: errorMessage || null,
+        updatedAt: new Date()
+      };
+      inMemorySceneVideoJobs.set(sessionId, sessionJobs);
+    }
+  }
+}
+
+// Helper to update session's editedScenes with video URL
+async function updateSessionSceneVideoUrl(sessionId: string, sceneIndex: number, videoUrl: string) {
+  try {
+    // Get current session
+    const sessions = await prisma.$queryRaw<any[]>`
+      SELECT edited_scenes, scenes FROM ugc_sessions WHERE id = ${sessionId}
+    `;
+    
+    if (sessions.length > 0) {
+      const session = sessions[0];
+      const scenes = session.edited_scenes || session.scenes || [];
+      
+      if (scenes[sceneIndex]) {
+        scenes[sceneIndex].videoUrl = videoUrl;
+        
+        await prisma.$executeRaw`
+          UPDATE ugc_sessions 
+          SET edited_scenes = ${JSON.stringify(scenes)}::jsonb,
+              updated_at = NOW()
+          WHERE id = ${sessionId}
+        `;
+      }
+    }
+  } catch (error) {
+    console.warn('Could not update session with video URL:', error);
+    // In-memory fallback handled by the caller
+  }
+}
+
+// Get scene video jobs status for a session
+router.get('/sessions/:id/scene-video-status', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const user = req.user as any;
+
+  try {
+    let jobs: any[] = [];
+
+    try {
+      jobs = await prisma.$queryRaw<any[]>`
+        SELECT 
+          id,
+          scene_index as "sceneIndex",
+          status,
+          progress,
+          video_url as "videoUrl",
+          error_message as "errorMessage",
+          created_at as "createdAt",
+          updated_at as "updatedAt"
+        FROM scene_video_jobs 
+        WHERE session_id = ${id}
+        ORDER BY scene_index ASC
+      `;
+    } catch {
+      // Fallback to in-memory
+      const sessionJobs = inMemorySceneVideoJobs.get(id) || [];
+      jobs = sessionJobs.map(j => ({
+        id: j.id,
+        sceneIndex: j.sceneIndex,
+        status: j.status,
+        progress: j.progress,
+        videoUrl: j.videoUrl,
+        errorMessage: j.errorMessage,
+        createdAt: j.createdAt,
+        updatedAt: j.updatedAt
+      }));
+    }
+
+    res.json({ jobs });
+  } catch (error) {
+    console.error('Error fetching scene video status:', error);
+    res.status(500).json({ error: 'Failed to fetch scene video status' });
+  }
+});
+
+// Generate all scene videos at once
+router.post('/sessions/:id/generate-all-scene-videos', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { scenes } = req.body;
+  const user = req.user as any;
+
+  try {
+    if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+      return res.status(400).json({ error: 'No scenes provided' });
+    }
+
+    const jobsStarted: { sceneIndex: number; jobId: string; status: string }[] = [];
+
+    for (const scene of scenes) {
+      if (!scene.imageUrl) {
+        console.log(`⚠️ Skipping scene ${scene.id}: No image URL`);
+        continue;
+      }
+
+      const sceneIndex = scene.id - 1; // scene.id is 1-based
+      const prompt = `${scene.prompt}. Motion: ${scene.motion || 'smooth movement'}. The character says: "${scene.dialogue || ''}"`;
+
+      // Create job in database
+      let jobId: string;
+      try {
+        const existingJobs = await prisma.$queryRaw<any[]>`
+          SELECT id FROM scene_video_jobs 
+          WHERE session_id = ${id} AND scene_index = ${sceneIndex}
+        `;
+
+        if (existingJobs.length > 0) {
+          jobId = existingJobs[0].id;
+          await prisma.$executeRaw`
+            UPDATE scene_video_jobs 
+            SET status = 'queued', 
+                progress = 0, 
+                video_url = NULL, 
+                error_message = NULL,
+                prompt = ${prompt},
+                image_url = ${scene.imageUrl},
+                updated_at = NOW()
+            WHERE id = ${jobId}
+          `;
+        } else {
+          const newJobs = await prisma.$queryRaw<any[]>`
+            INSERT INTO scene_video_jobs (id, session_id, scene_index, status, progress, prompt, image_url, created_at, updated_at)
+            VALUES (gen_random_uuid(), ${id}, ${sceneIndex}, 'queued', 0, ${prompt}, ${scene.imageUrl}, NOW(), NOW())
+            RETURNING id
+          `;
+          jobId = newJobs[0].id;
+        }
+      } catch {
+        // Fallback to in-memory
+        jobId = `job_${Date.now()}_${sceneIndex}`;
+        const sessionJobs = inMemorySceneVideoJobs.get(id) || [];
+        sessionJobs.push({
+          id: jobId,
+          sessionId: id,
+          sceneIndex,
+          status: 'queued',
+          progress: 0,
+          prompt,
+          imageUrl: scene.imageUrl,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        inMemorySceneVideoJobs.set(id, sessionJobs);
+      }
+
+      jobsStarted.push({ sceneIndex, jobId, status: 'queued' });
+
+      // Start background processing (don't await - run in parallel)
+      processSceneVideoJob(id, sceneIndex, jobId, prompt, scene.imageUrl);
+    }
+
+    res.json({
+      success: true,
+      message: `Started video generation for ${jobsStarted.length} scenes`,
+      jobs: jobsStarted
+    });
+
+  } catch (error) {
+    console.error('Error starting batch video generation:', error);
+    res.status(500).json({ error: 'Failed to start batch video generation' });
   }
 });
 
