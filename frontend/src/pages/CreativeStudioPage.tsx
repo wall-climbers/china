@@ -29,6 +29,13 @@ interface SceneVideo {
   createdAt: Date;
 }
 
+interface StitchedVideo {
+  url: string;
+  isNew?: boolean;
+  createdAt: Date;
+  sceneCount: number;   // number of scenes included
+}
+
 interface Scene {
   id: number;
   title: string;
@@ -176,6 +183,8 @@ const CreativeStudioPage = () => {
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState<string>('draft');
+  const [stitchedVideos, setStitchedVideos] = useState<StitchedVideo[]>([]);
+  const [selectedStitchedVideoIndex, setSelectedStitchedVideoIndex] = useState(0);
   const [stitchingStage, setStitchingStage] = useState<string>('');
   const [stitchingMessage, setStitchingMessage] = useState<string>('');
   const [creatingPost, setCreatingPost] = useState(false);
@@ -212,8 +221,25 @@ const CreativeStudioPage = () => {
           if (response.data.videoUrl) {
             setVideoUrl(response.data.videoUrl);
           }
-          if (response.data.status === 'completed') {
+          if (response.data.status === 'completed' && response.data.videoUrl) {
             clearInterval(interval);
+            // Add new video to stitchedVideos array
+            setStitchedVideos(prev => {
+              // Check if this URL is already in the array
+              if (prev.some(v => v.url === response.data.videoUrl)) {
+                return prev;
+              }
+              // Mark existing as not new, add new video at the beginning
+              const updatedPrev = prev.map(v => ({ ...v, isNew: false }));
+              const newVideo: StitchedVideo = {
+                url: response.data.videoUrl,
+                isNew: true,
+                createdAt: new Date(),
+                sceneCount: scenes.filter(s => getSelectedVideoUrl(s) && s.included !== false).length
+              };
+              return [newVideo, ...updatedPrev];
+            });
+            setSelectedStitchedVideoIndex(0);
             toast.success('Video stitched successfully!');
           }
           if (response.data.status === 'failed') {
@@ -413,6 +439,27 @@ const CreativeStudioPage = () => {
     if (normalized.videoUrl) setVideoUrl(normalized.videoUrl);
     if (normalized.videoProgress) setVideoProgress(normalized.videoProgress);
     if (normalized.status) setVideoStatus(normalized.status);
+    
+    // Load stitched videos array
+    const videos = sessionData.stitchedVideos || sessionData.stitched_videos;
+    if (videos && Array.isArray(videos) && videos.length > 0) {
+      setStitchedVideos(videos.map((v: any) => ({
+        url: v.url,
+        isNew: false,
+        createdAt: new Date(v.createdAt || v.created_at || Date.now()),
+        sceneCount: v.sceneCount || v.scene_count || 0
+      })));
+      setSelectedStitchedVideoIndex(0);
+    } else if (normalized.videoUrl) {
+      // Migrate legacy single videoUrl to stitchedVideos array
+      setStitchedVideos([{
+        url: normalized.videoUrl,
+        isNew: false,
+        createdAt: new Date(),
+        sceneCount: 0
+      }]);
+      setSelectedStitchedVideoIndex(0);
+    }
     
     setShowSessionPicker(false);
     
@@ -2352,23 +2399,24 @@ const CreativeStudioPage = () => {
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  {videoStatus === 'completed' ? 'Your Video is Ready!' : 'Generating Your Video'}
+                  {videoStatus === 'completed' || stitchedVideos.length > 0 ? 'Your Videos' : 'Generating Your Video'}
                 </h2>
                 <p className="text-gray-600">
-                  {videoStatus === 'completed' 
+                  {videoStatus === 'completed' || stitchedVideos.length > 0
                     ? 'Download and share your creative content.'
                     : 'Please wait while we create your video...'}
                 </p>
               </div>
 
+              {/* Generation Progress - shown while stitching, but doesn't hide previous videos */}
               {videoStatus === 'generating' && (
-                <div className="py-12">
+                <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 mb-6">
                   <div className="max-w-md mx-auto">
                     {/* Stage indicator */}
-                    <div className="flex justify-center gap-2 mb-6">
+                    <div className="flex justify-center gap-2 mb-4">
                       {['downloading', 'processing', 'stitching', 'uploading'].map((stage, idx) => (
                         <div key={stage} className="flex items-center">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shadow-sm ${
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shadow-sm ${
                             stitchingStage === stage 
                               ? 'bg-purple-600 text-white animate-pulse' 
                               : ['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx
@@ -2377,57 +2425,98 @@ const CreativeStudioPage = () => {
                           }`}>
                             {['downloading', 'processing', 'stitching', 'uploading'].indexOf(stitchingStage) > idx ? '✓' : idx + 1}
                           </div>
-                          {idx < 3 && <div className="w-8 h-0.5 bg-gray-300 mx-1" />}
+                          {idx < 3 && <div className="w-6 h-0.5 bg-gray-300 mx-1" />}
                         </div>
                       ))}
                     </div>
                     
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-gray-700 font-medium">Progress</span>
+                      <span className="text-gray-700 font-medium text-sm">Generating new video...</span>
                       <span className="text-gray-900 font-semibold">{videoProgress}%</span>
                     </div>
-                    <div className="h-3 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-500"
                         style={{ width: `${videoProgress}%` }}
                       />
                     </div>
-                    <div className="mt-4 text-center">
-                      <Loader className="h-8 w-8 text-purple-600 animate-spin mx-auto mb-2" />
-                      <p className="text-gray-700 text-sm font-medium">
-                        {stitchingMessage || (
-                          <>
-                            {stitchingStage === 'downloading' && '📥 Downloading scene videos...'}
-                            {stitchingStage === 'processing' && '⚙️ Preparing video segments...'}
-                            {stitchingStage === 'stitching' && '🎬 Stitching videos with transitions...'}
-                            {stitchingStage === 'uploading' && '☁️ Uploading final video...'}
-                            {!stitchingStage && 'Starting video stitching...'}
-                          </>
-                        )}
-                      </p>
-                      <p className="text-gray-600 text-xs mt-2">
-                        Combining {scenes.filter(s => s.videoUrl && s.included !== false).length} scenes
-                      </p>
-                    </div>
+                    <p className="text-gray-600 text-xs mt-2 text-center">
+                      {stitchingMessage || (
+                        <>
+                          {stitchingStage === 'downloading' && '📥 Downloading scene videos...'}
+                          {stitchingStage === 'processing' && '⚙️ Preparing video segments...'}
+                          {stitchingStage === 'stitching' && '🎬 Stitching videos with transitions...'}
+                          {stitchingStage === 'uploading' && '☁️ Uploading final video...'}
+                          {!stitchingStage && 'Starting video stitching...'}
+                        </>
+                      )}
+                    </p>
                   </div>
                 </div>
               )}
 
-              {videoStatus === 'completed' && videoUrl && (
-                <div className="py-8">
-                  <div className="max-w-2xl mx-auto">
-                    <div className="aspect-video bg-black rounded-xl overflow-hidden mb-6 shadow-lg">
+              {/* Video Gallery - show all stitched videos */}
+              {stitchedVideos.length > 0 && (
+                <div className="py-4">
+                  <div className="max-w-3xl mx-auto">
+                    {/* Selected Video Preview */}
+                    <div className="aspect-video bg-black rounded-xl overflow-hidden mb-4 shadow-lg">
                       <video
-                        src={videoUrl}
+                        src={stitchedVideos[selectedStitchedVideoIndex]?.url}
                         controls
                         className="w-full h-full"
                         poster={product?.imageUrl}
                       />
                     </div>
+                    
+                    {/* Video Thumbnails */}
+                    {stitchedVideos.length > 1 && (
+                      <div className="flex gap-3 overflow-x-auto pb-2 mb-4">
+                        {stitchedVideos.map((vid, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedStitchedVideoIndex(idx)}
+                            className={`relative flex-shrink-0 w-24 h-14 rounded-lg overflow-hidden border-2 transition-all ${
+                              selectedStitchedVideoIndex === idx
+                                ? 'border-purple-500 ring-2 ring-purple-500/50'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                          >
+                            <video 
+                              src={vid.url} 
+                              className="w-full h-full object-cover"
+                              muted
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                              <Play className="h-4 w-4 text-white/80" />
+                            </div>
+                            {selectedStitchedVideoIndex === idx && (
+                              <div className="absolute bottom-0 right-0 bg-purple-500 p-0.5 rounded-tl">
+                                <Check className="h-3 w-3 text-white" />
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Video info */}
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm text-gray-500">
+                        {stitchedVideos.length} video{stitchedVideos.length > 1 ? 's' : ''} generated
+                        {stitchedVideos[selectedStitchedVideoIndex] && (
+                          <span className="ml-2">
+                            • {stitchedVideos[selectedStitchedVideoIndex].sceneCount} scenes
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    
+                    {/* Action buttons */}
                     <div className="flex flex-col gap-4">
                       <div className="flex justify-center gap-4">
                         <a
-                          href={videoUrl}
+                          href={stitchedVideos[selectedStitchedVideoIndex]?.url}
                           download
                           className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all shadow-md"
                         >
@@ -2451,11 +2540,19 @@ const CreativeStudioPage = () => {
                             </>
                           )}
                         </button>
+                        <button
+                          onClick={() => setCurrentStep(3)}
+                          disabled={videoStatus === 'generating'}
+                          className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all disabled:opacity-50"
+                        >
+                          <Wand2 className="h-5 w-5" />
+                          Generate Another
+                        </button>
                       </div>
                       <div className="flex justify-center">
                         <button
                           onClick={() => setShowSessionPicker(true)}
-                          className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-all"
+                          className="flex items-center gap-2 px-6 py-3 bg-gray-100 text-gray-600 rounded-lg font-medium hover:bg-gray-200 transition-all"
                         >
                           View All Sessions
                         </button>
@@ -2465,7 +2562,22 @@ const CreativeStudioPage = () => {
                 </div>
               )}
 
-              {videoStatus === 'failed' && (
+              {/* Empty state - no videos yet and not generating */}
+              {stitchedVideos.length === 0 && videoStatus !== 'generating' && (
+                <div className="py-12 text-center">
+                  <Film className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 mb-4">No videos generated yet</p>
+                  <button
+                    onClick={() => setCurrentStep(3)}
+                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 mx-auto"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                    Back to Scenes
+                  </button>
+                </div>
+              )}
+
+              {videoStatus === 'failed' && stitchedVideos.length === 0 && (
                 <div className="py-12 text-center">
                   <p className="text-red-600 mb-4 font-medium">Video generation failed. Please try again.</p>
                   <button
@@ -2475,6 +2587,24 @@ const CreativeStudioPage = () => {
                     <RefreshCw className="h-5 w-5" />
                     Retry
                   </button>
+                </div>
+              )}
+              
+              {/* Failed but has previous videos - show error banner */}
+              {videoStatus === 'failed' && stitchedVideos.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-red-600 text-sm font-medium">
+                      ❌ Latest video generation failed. Your previous videos are still available.
+                    </p>
+                    <button
+                      onClick={handleGenerateVideo}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Retry
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

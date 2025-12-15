@@ -1,5 +1,6 @@
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
+import ffprobePath from 'ffprobe-static';
 import { writeFile, unlink, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
@@ -7,9 +8,18 @@ import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { uploadVideoToS3 } from './s3';
 
-// Set ffmpeg path
+// Set ffmpeg and ffprobe paths from static packages
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
+  console.log(`[video-stitcher] ffmpeg path set: ${ffmpegPath}`);
+}
+
+if (ffprobePath?.path) {
+  ffmpeg.setFfprobePath(ffprobePath.path);
+  console.log(`[video-stitcher] ffprobe path set: ${ffprobePath.path}`);
+} else if (typeof ffprobePath === 'string') {
+  ffmpeg.setFfprobePath(ffprobePath);
+  console.log(`[video-stitcher] ffprobe path set: ${ffprobePath}`);
 }
 
 export interface SceneVideo {
@@ -78,14 +88,154 @@ export class VideoStitcherService {
    */
   private async getVideoDuration(filePath: string): Promise<number> {
     return new Promise((resolve, reject) => {
+      // Check if file exists first
+      if (!existsSync(filePath)) {
+        console.error(`   [ffprobe] File does not exist: ${filePath}`);
+        resolve(4);
+        return;
+      }
+      
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
-          console.warn(`Could not get duration for ${filePath}, using default 4s`);
+          console.error(`   [ffprobe] Error probing ${path.basename(filePath)}:`, err.message || err);
+          console.warn(`   [ffprobe] Using default 4s duration`);
           resolve(4); // Default to 4 seconds
         } else {
-          resolve(metadata.format.duration || 4);
+          const duration = metadata.format?.duration || 4;
+          console.log(`   [ffprobe] ${path.basename(filePath)} duration: ${duration.toFixed(2)}s`);
+          resolve(duration);
         }
       });
+    });
+  }
+
+  /**
+   * Check if video has an audio track
+   */
+  private async videoHasAudio(filePath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!existsSync(filePath)) {
+        console.error(`   [ffprobe] File does not exist: ${filePath}`);
+        resolve(false);
+        return;
+      }
+      
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) {
+          console.error(`   [ffprobe] Error checking audio for ${path.basename(filePath)}:`, err.message || err);
+          resolve(false);
+        } else {
+          const hasAudio = metadata.streams?.some((s: any) => s.codec_type === 'audio') || false;
+          console.log(`   [ffprobe] ${path.basename(filePath)} has audio: ${hasAudio}`);
+          resolve(hasAudio);
+        }
+      });
+    });
+  }
+
+  /**
+   * Get video properties (resolution, framerate)
+   */
+  private async getVideoProperties(filePath: string): Promise<{ width: number; height: number; fps: number }> {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(filePath, (err, metadata) => {
+        if (err) {
+          resolve({ width: 1080, height: 1920, fps: 30 }); // Default 9:16 vertical
+        } else {
+          const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
+          const width = videoStream?.width || 1080;
+          const height = videoStream?.height || 1920;
+          // Parse framerate (could be "30/1" or "29.97" etc)
+          let fps = 30;
+          if (videoStream?.r_frame_rate) {
+            const parts = videoStream.r_frame_rate.split('/');
+            if (parts.length === 2) {
+              fps = Math.round(parseInt(parts[0]) / parseInt(parts[1]));
+            } else {
+              fps = parseFloat(videoStream.r_frame_rate) || 30;
+            }
+          }
+          console.log(`   Video properties for ${path.basename(filePath)}: ${width}x${height} @ ${fps}fps`);
+          resolve({ width, height, fps });
+        }
+      });
+    });
+  }
+
+  /**
+   * Normalize a video to consistent framerate and ensure audio track exists
+   * Preserves original resolution to avoid shrinking videos
+   */
+  private async normalizeVideo(
+    inputPath: string, 
+    outputPath: string,
+    targetWidth: number = 0, // 0 = preserve original
+    targetHeight: number = 0, // 0 = preserve original
+    targetFps: number = 30
+  ): Promise<void> {
+    const hasAudio = await this.videoHasAudio(inputPath);
+    const duration = await this.getVideoDuration(inputPath);
+    const props = await this.getVideoProperties(inputPath);
+    
+    // Use original dimensions if target is 0
+    const width = targetWidth || props.width;
+    const height = targetHeight || props.height;
+    
+    return new Promise((resolve, reject) => {
+      let command = ffmpeg().input(inputPath);
+
+      // Video filter: normalize framerate, set SAR to 1 (square pixels)
+      // Only scale if dimensions are specified and different from original
+      let videoFilter: string;
+      if (targetWidth > 0 && targetHeight > 0 && (targetWidth !== props.width || targetHeight !== props.height)) {
+        // Scale to target with padding to maintain aspect ratio
+        videoFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${targetFps}`;
+      } else {
+        // Preserve original size, just normalize framerate and SAR
+        videoFilter = `setsar=1,fps=${targetFps}`;
+      }
+
+      if (hasAudio) {
+        // Has audio - just normalize video and re-encode audio to consistent format
+        command
+          .outputOptions([
+            '-vf', videoFilter,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-ar', '44100',
+            '-ac', '2'
+          ]);
+      } else {
+        // No audio - add silent audio track to match video duration
+        command
+          .input('anullsrc=r=44100:cl=stereo')
+          .inputOptions(['-f', 'lavfi'])
+          .outputOptions([
+            '-vf', videoFilter,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-t', String(duration), // Match video duration
+            '-shortest'
+          ]);
+      }
+
+      command
+        .output(outputPath)
+        .on('end', () => {
+          console.log(`   Normalized: ${path.basename(inputPath)} -> ${path.basename(outputPath)}`);
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error('Normalize error:', err.message);
+          reject(err);
+        })
+        .run();
     });
   }
 
@@ -118,7 +268,8 @@ export class VideoStitcherService {
     }
 
     await this.ensureTempDir();
-    const localPaths: string[] = [];
+    const downloadedPaths: string[] = [];
+    const normalizedPaths: string[] = [];
     const durations: number[] = [];
 
     try {
@@ -131,7 +282,7 @@ export class VideoStitcherService {
         console.log(`   Downloading scene ${i + 1}/${includedScenes.length}...`);
         reportProgress({ 
           stage: 'downloading', 
-          progress: Math.round((i / includedScenes.length) * 30),
+          progress: Math.round((i / includedScenes.length) * 20),
           message: `Downloading scene ${i + 1}/${includedScenes.length}...`
         });
 
@@ -139,34 +290,62 @@ export class VideoStitcherService {
           scene.videoUrl, 
           `${jobId}-scene-${i}.mp4`
         );
-        localPaths.push(localPath);
-
-        // Get actual duration or use provided
-        const duration = scene.duration || await this.getVideoDuration(localPath);
-        durations.push(duration);
+        downloadedPaths.push(localPath);
       }
 
-      reportProgress({ stage: 'processing', progress: 30, message: 'Preparing video segments...' });
+      reportProgress({ stage: 'processing', progress: 20, message: 'Normalizing video formats...' });
+
+      // Normalize all videos to consistent format (prevents squashing and sync issues)
+      console.log('   Normalizing videos to consistent format...');
+      for (let i = 0; i < downloadedPaths.length; i++) {
+        const inputPath = downloadedPaths[i];
+        const normalizedPath = path.join(this.tempDir, `${jobId}-normalized-${i}.mp4`);
+        
+        reportProgress({ 
+          stage: 'processing', 
+          progress: 20 + Math.round((i / downloadedPaths.length) * 20),
+          message: `Normalizing video ${i + 1}/${downloadedPaths.length}...`
+        });
+
+        await this.normalizeVideo(inputPath, normalizedPath);
+        normalizedPaths.push(normalizedPath);
+
+        // ALWAYS get actual duration from the normalized video file
+        // Don't trust passed duration as it may be a default value
+        const actualDuration = await this.getVideoDuration(normalizedPath);
+        const passedDuration = includedScenes[i].duration;
+        
+        // Use actual duration from file, not passed duration
+        durations.push(actualDuration);
+        
+        if (passedDuration && Math.abs(passedDuration - actualDuration) > 0.5) {
+          console.log(`   Scene ${i + 1} duration: ${actualDuration.toFixed(2)}s (passed: ${passedDuration}s - using actual)`);
+        } else {
+          console.log(`   Scene ${i + 1} duration: ${actualDuration.toFixed(2)}s`);
+        }
+      }
+
+      reportProgress({ stage: 'stitching', progress: 40, message: 'Stitching videos together...' });
 
       const outputPath = path.join(this.tempDir, `${jobId}-stitched.mp4`);
 
       // Determine stitching strategy based on number of scenes
       if (includedScenes.length === 2) {
-        // For 2 scenes, use simple xfade
-        await this.stitchTwoVideos(localPaths, includedScenes, outputPath, transitionDuration, durations);
+        // For 2 scenes, use xfade
+        await this.stitchTwoVideos(normalizedPaths, includedScenes, outputPath, transitionDuration, durations);
       } else {
-        // For 3+ scenes, use concat with crossfade filter
-        await this.stitchMultipleVideos(localPaths, includedScenes, outputPath, transitionDuration, durations, (p) => {
+        // For 3+ scenes, stitch sequentially
+        await this.stitchMultipleVideos(normalizedPaths, includedScenes, outputPath, transitionDuration, durations, (p) => {
           reportProgress({ 
             stage: 'stitching', 
-            progress: 30 + Math.round(p * 0.5),
+            progress: 40 + Math.round(p * 40),
             message: 'Stitching videos...'
           });
         });
       }
 
       console.log(`✅ Video stitching complete, uploading to S3...`);
-      reportProgress({ stage: 'uploading', progress: 80, message: 'Uploading final video...' });
+      reportProgress({ stage: 'uploading', progress: 85, message: 'Uploading final video...' });
 
       // Upload to S3
       const videoBuffer = await readFile(outputPath);
@@ -174,9 +353,10 @@ export class VideoStitcherService {
 
       // Get final duration
       const finalDuration = await this.getVideoDuration(outputPath);
+      console.log(`   Final video duration: ${finalDuration.toFixed(2)}s`);
 
       // Cleanup temp files
-      await this.cleanup([...localPaths, outputPath]);
+      await this.cleanup([...downloadedPaths, ...normalizedPaths, outputPath]);
 
       console.log(`✅ Stitched video uploaded: ${s3Url}`);
       reportProgress({ stage: 'complete', progress: 100, message: 'Video ready!' });
@@ -189,7 +369,7 @@ export class VideoStitcherService {
 
     } catch (error) {
       console.error('❌ Video stitching failed:', error);
-      await this.cleanup(localPaths);
+      await this.cleanup([...downloadedPaths, ...normalizedPaths]);
       reportProgress({ 
         stage: 'error', 
         progress: 0, 
@@ -203,7 +383,8 @@ export class VideoStitcherService {
   }
 
   /**
-   * Stitch exactly 2 videos with xfade transition
+   * Stitch exactly 2 videos with xfade transition and proper audio crossfade
+   * Uses acrossfade for reliable audio sync
    */
   private async stitchTwoVideos(
     inputPaths: string[],
@@ -213,23 +394,31 @@ export class VideoStitcherService {
     durations: number[]
   ): Promise<void> {
     const transition = scenes[0].transition || 'fade';
-    const offset = Math.max(0, durations[0] - transitionDuration);
+    const duration1 = durations[0];
+    const duration2 = durations[1];
+    const offset = Math.max(0, duration1 - transitionDuration);
 
     return new Promise((resolve, reject) => {
-      console.log(`   Using xfade transition: ${transition} at offset ${offset}s`);
+      console.log(`   Using xfade transition: ${transition}`);
+      console.log(`   Video 1 duration: ${duration1.toFixed(2)}s, Video 2 duration: ${duration2.toFixed(2)}s`);
+      console.log(`   Transition offset: ${offset.toFixed(2)}s, transition duration: ${transitionDuration}s`);
       
       const command = ffmpeg()
         .input(inputPaths[0])
         .input(inputPaths[1]);
 
-      // Build filter based on transition type
       let filterComplex: string;
+      
       if (transition === 'none') {
-        // Simple concatenation without transition
+        // Simple concatenation without transition - audio stays in sync
         filterComplex = `[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]`;
       } else {
-        // Video with transition
-        filterComplex = `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[outv];[0:a][1:a]acrossfade=d=${transitionDuration}[outa]`;
+        // Video: xfade transition
+        // Audio: acrossfade for proper crossfade with correct timing
+        // The key fix: use acrossfade which handles timing correctly
+        filterComplex = 
+          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[outv];` +
+          `[0:a][1:a]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[outa]`;
       }
 
       command
@@ -241,86 +430,18 @@ export class VideoStitcherService {
           '-preset', 'fast',
           '-crf', '23',
           '-c:a', 'aac',
-          '-b:a', '128k'
+          '-b:a', '128k',
+          '-movflags', '+faststart'
         ])
         .output(outputPath)
-        .on('end', () => resolve())
-        .on('error', (err) => reject(err))
-        .run();
-    });
-  }
-
-  /**
-   * Stitch 3+ videos with chained transitions
-   */
-  private async stitchMultipleVideos(
-    inputPaths: string[],
-    scenes: SceneVideo[],
-    outputPath: string,
-    transitionDuration: number,
-    durations: number[],
-    onProgress: (progress: number) => void
-  ): Promise<void> {
-    // For multiple videos, we'll chain xfade filters
-    return new Promise((resolve, reject) => {
-      const command = ffmpeg();
-      
-      // Add all inputs
-      inputPaths.forEach(path => command.input(path));
-
-      // Build complex filter for chained transitions
-      let filterComplex = '';
-      let audioFilter = '';
-      let currentVideoLabel = '[0:v]';
-      let currentAudioLabel = '[0:a]';
-      let cumulativeDuration = durations[0];
-
-      for (let i = 1; i < inputPaths.length; i++) {
-        const transition = scenes[i - 1].transition || 'fade';
-        const offset = Math.max(0, cumulativeDuration - transitionDuration);
-        const nextVideoLabel = i === inputPaths.length - 1 ? '[outv]' : `[v${i}]`;
-        const nextAudioLabel = i === inputPaths.length - 1 ? '[outa]' : `[a${i}]`;
-
-        if (transition === 'none') {
-          // Simple concat for this segment
-          filterComplex += `${currentVideoLabel}[${i}:v]concat=n=2:v=1:a=0${nextVideoLabel};`;
-          audioFilter += `${currentAudioLabel}[${i}:a]concat=n=2:v=0:a=1${nextAudioLabel};`;
-        } else {
-          filterComplex += `${currentVideoLabel}[${i}:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}${nextVideoLabel};`;
-          audioFilter += `${currentAudioLabel}[${i}:a]acrossfade=d=${transitionDuration}${nextAudioLabel};`;
-        }
-
-        currentVideoLabel = nextVideoLabel;
-        currentAudioLabel = nextAudioLabel;
-        cumulativeDuration += durations[i] - (transition !== 'none' ? transitionDuration : 0);
-      }
-
-      // Combine video and audio filters
-      const fullFilter = filterComplex + audioFilter.slice(0, -1); // Remove trailing semicolon
-
-      console.log(`   Using chained xfade transitions for ${inputPaths.length} videos`);
-
-      command
-        .complexFilter(fullFilter)
-        .outputOptions([
-          '-map', '[outv]',
-          '-map', '[outa]',
-          '-c:v', 'libx264',
-          '-preset', 'fast',
-          '-crf', '23',
-          '-c:a', 'aac',
-          '-b:a', '128k'
-        ])
-        .output(outputPath)
-        .on('progress', (progress) => {
-          if (progress.percent) {
-            onProgress(progress.percent / 100);
-          }
+        .on('end', () => {
+          console.log(`   Stitched 2 videos successfully`);
+          resolve();
         })
-        .on('end', () => resolve())
         .on('error', (err) => {
-          console.error('FFmpeg error:', err.message);
+          console.error('FFmpeg 2-video error:', err.message);
           // Fallback to simple concatenation if complex filter fails
+          console.log('   Falling back to simple concatenation...');
           this.fallbackConcatenation(inputPaths, outputPath)
             .then(resolve)
             .catch(reject);
@@ -330,10 +451,178 @@ export class VideoStitcherService {
   }
 
   /**
+   * Stitch 3+ videos with proper audio/video sync
+   * Uses sequential approach: stitch pairs then combine for reliable sync
+   */
+  private async stitchMultipleVideos(
+    inputPaths: string[],
+    scenes: SceneVideo[],
+    outputPath: string,
+    transitionDuration: number,
+    durations: number[],
+    onProgress: (progress: number) => void
+  ): Promise<void> {
+    console.log(`   Stitching ${inputPaths.length} videos with sequential approach for reliable sync`);
+    
+    // Check if all transitions are 'none' - use simple concat
+    const allNoTransition = scenes.every(s => s.transition === 'none');
+    if (allNoTransition) {
+      console.log('   All transitions are "none", using simple concatenation');
+      return this.fallbackConcatenation(inputPaths, outputPath);
+    }
+
+    // For multiple videos with transitions, use sequential stitching
+    // This is more reliable than complex chained filters
+    let currentPath = inputPaths[0];
+    let currentDuration = durations[0];
+    const tempPaths: string[] = [];
+
+    try {
+      for (let i = 1; i < inputPaths.length; i++) {
+        const progress = (i - 1) / (inputPaths.length - 1);
+        onProgress(progress);
+
+        const transition = scenes[i - 1].transition || 'fade';
+        const nextPath = inputPaths[i];
+        const nextDuration = durations[i];
+        
+        console.log(`   Stitching pair ${i}: ${path.basename(currentPath)} + ${path.basename(nextPath)}`);
+        
+        // Output path for this step
+        const stepOutput = i === inputPaths.length - 1 
+          ? outputPath 
+          : path.join(this.tempDir, `step-${i}-${Date.now()}.mp4`);
+        
+        if (i < inputPaths.length - 1) {
+          tempPaths.push(stepOutput);
+        }
+
+        // Stitch current + next
+        await this.stitchTwoPaths(
+          currentPath, 
+          nextPath, 
+          stepOutput, 
+          transition, 
+          transitionDuration, 
+          currentDuration,
+          nextDuration
+        );
+
+        // Update for next iteration
+        currentPath = stepOutput;
+        // New duration = current + next - transition overlap
+        currentDuration = currentDuration + nextDuration - (transition !== 'none' ? transitionDuration : 0);
+        console.log(`   Step ${i} complete, cumulative duration: ${currentDuration.toFixed(2)}s`);
+      }
+
+      onProgress(1);
+
+      // Cleanup temp paths
+      for (const p of tempPaths) {
+        await unlink(p).catch(() => {});
+      }
+
+    } catch (error) {
+      // Cleanup on error
+      for (const p of tempPaths) {
+        await unlink(p).catch(() => {});
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Helper to stitch exactly 2 paths with a transition
+   * Uses acrossfade for proper audio sync
+   */
+  private async stitchTwoPaths(
+    path1: string,
+    path2: string,
+    outputPath: string,
+    transition: SceneVideo['transition'],
+    transitionDuration: number,
+    duration1: number,
+    duration2: number
+  ): Promise<void> {
+    const offset = Math.max(0, duration1 - transitionDuration);
+
+    return new Promise((resolve, reject) => {
+      const command = ffmpeg()
+        .input(path1)
+        .input(path2);
+
+      let filterComplex: string;
+      
+      if (transition === 'none') {
+        // Simple concat
+        filterComplex = `[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]`;
+      } else {
+        // Use xfade for video and acrossfade for audio
+        filterComplex = 
+          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[outv];` +
+          `[0:a][1:a]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[outa]`;
+      }
+
+      command
+        .complexFilter(filterComplex)
+        .outputOptions([
+          '-map', '[outv]',
+          '-map', '[outa]',
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '23',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-movflags', '+faststart'
+        ])
+        .output(outputPath)
+        .on('end', () => resolve())
+        .on('error', (err) => {
+          console.error('FFmpeg pair stitch error:', err.message);
+          // Fallback to simple concat for this pair
+          this.simpleConcatTwo(path1, path2, outputPath)
+            .then(resolve)
+            .catch(reject);
+        })
+        .run();
+    });
+  }
+
+  /**
+   * Simple concatenation of exactly 2 files
+   */
+  private async simpleConcatTwo(path1: string, path2: string, outputPath: string): Promise<void> {
+    const concatFile = path.join(this.tempDir, `concat-${Date.now()}.txt`);
+    const concatContent = `file '${path1}'\nfile '${path2}'`;
+    await writeFile(concatFile, concatContent);
+
+    return new Promise((resolve, reject) => {
+      ffmpeg()
+        .input(concatFile)
+        .inputOptions(['-f', 'concat', '-safe', '0'])
+        .outputOptions([
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '23',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-movflags', '+faststart'
+        ])
+        .output(outputPath)
+        .on('end', async () => {
+          await unlink(concatFile).catch(() => {});
+          resolve();
+        })
+        .on('error', (err) => reject(err))
+        .run();
+    });
+  }
+
+  /**
    * Fallback: Simple concatenation without transitions
    */
   private async fallbackConcatenation(inputPaths: string[], outputPath: string): Promise<void> {
-    console.log('   Falling back to simple concatenation...');
+    console.log('   Using simple concatenation (no transitions)...');
     
     // Create concat file
     const concatFile = path.join(this.tempDir, `concat-${Date.now()}.txt`);
@@ -349,7 +638,8 @@ export class VideoStitcherService {
           '-preset', 'fast',
           '-crf', '23',
           '-c:a', 'aac',
-          '-b:a', '128k'
+          '-b:a', '128k',
+          '-movflags', '+faststart'
         ])
         .output(outputPath)
         .on('end', async () => {
@@ -363,11 +653,8 @@ export class VideoStitcherService {
 
   /**
    * Analyze scene content to suggest optimal transition
-   * This is a "smart" feature that could be enhanced with AI later
    */
   suggestTransition(fromScene: SceneVideo, toScene: SceneVideo): SceneVideo['transition'] {
-    // Default transitions based on common scenarios
-    // In the future, this could analyze actual video content
     const transitions: SceneVideo['transition'][] = [
       'fade',
       'dissolve',
@@ -376,8 +663,6 @@ export class VideoStitcherService {
       'circleopen'
     ];
     
-    // For now, return a varied selection based on scene index
-    // Could be enhanced with actual content analysis
     return transitions[Math.floor(Math.random() * transitions.length)];
   }
 
@@ -385,14 +670,6 @@ export class VideoStitcherService {
    * Auto-assign transitions to scenes based on their content/section
    */
   autoAssignTransitions(scenes: SceneVideo[]): SceneVideo[] {
-    const sectionTransitions: Record<string, SceneVideo['transition']> = {
-      'hook': 'fade',
-      'problem': 'dissolve',
-      'solution': 'wipeleft',
-      'testimonial': 'circleopen',
-      'cta': 'fade'
-    };
-
     return scenes.map((scene, index) => {
       if (scene.transition) return scene; // Keep existing transition
       
@@ -425,4 +702,3 @@ export class VideoStitcherService {
 
 // Export singleton instance
 export const videoStitcherService = new VideoStitcherService();
-

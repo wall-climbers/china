@@ -1128,12 +1128,14 @@ router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) =>
     }
 
     // Filter scenes that have video URLs and are included in final
+    // NOTE: Don't pass duration - let the stitcher detect it from the actual video file
+    // This ensures accurate xfade offsets based on real video length
     const scenesWithVideos: SceneVideo[] = scenes
       .filter((scene: any) => scene.videoUrl && scene.includeInFinal !== false)
       .map((scene: any, index: number) => ({
         videoUrl: scene.videoUrl,
         transition: scene.transition || (index === scenes.length - 1 ? 'none' : 'fade'),
-        duration: scene.videoDuration || 4,
+        duration: scene.videoDuration || undefined, // Let stitcher detect from actual file
         includeInFinal: scene.includeInFinal !== false
       }));
 
@@ -1192,23 +1194,43 @@ router.post('/sessions/:id/generate-video', isAuthenticated, async (req, res) =>
       if (result.success && result.videoUrl) {
         console.log(`✅ Video stitching complete: ${result.videoUrl}`);
         
-        // Update session with final video URL
+        // Create new video entry for stitched_videos array
+        const newVideo = {
+          url: result.videoUrl,
+          createdAt: new Date().toISOString(),
+          sceneCount: scenesWithVideos.length
+        };
+        
+        // Update session with final video URL and append to stitched_videos array
         try {
+          // First get existing stitched_videos
+          const existingSession = await prisma.$queryRaw<any[]>`
+            SELECT stitched_videos FROM ugc_sessions WHERE id = ${id}
+          `;
+          
+          const existingVideos = existingSession?.[0]?.stitched_videos || [];
+          const updatedVideos = [newVideo, ...existingVideos];
+          
           await prisma.$executeRaw`
             UPDATE ugc_sessions 
             SET video_progress = 100,
                 status = 'completed',
                 video_url = ${result.videoUrl},
+                stitched_videos = ${JSON.stringify(updatedVideos)}::jsonb,
                 updated_at = NOW()
             WHERE id = ${id}
           `;
-        } catch {
+        } catch (dbError) {
+          console.log('Using in-memory storage for stitched videos');
           const userSessions = inMemoryUgcSessions.get(user.id) || [];
           const sessionIndex = userSessions.findIndex(s => s.id === id);
           if (sessionIndex !== -1) {
             userSessions[sessionIndex].videoProgress = 100;
             userSessions[sessionIndex].status = 'completed';
             userSessions[sessionIndex].videoUrl = result.videoUrl;
+            // Append to stitched videos array
+            const existingVideos = userSessions[sessionIndex].stitchedVideos || [];
+            userSessions[sessionIndex].stitchedVideos = [newVideo, ...existingVideos];
             userSessions[sessionIndex].updatedAt = new Date();
             inMemoryUgcSessions.set(user.id, userSessions);
           }
@@ -1294,12 +1316,41 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
   const user = req.user as any;
 
   try {
-    // First check if we have active stitching progress
+    // First check if we have active stitching progress (real-time updates from stitcher)
     const activeProgress = stitchingProgress.get(id);
     
+    // If we have active progress, use it directly for real-time updates
+    if (activeProgress) {
+      // Still try to get session data for videoUrl/stitchedVideos
+      let sessionData: any = null;
+      try {
+        const sessions = await prisma.$queryRaw`
+          SELECT video_url, stitched_videos, status FROM ugc_sessions 
+          WHERE id = ${id} AND user_id = ${user.id}
+        ` as any[];
+        sessionData = sessions[0];
+      } catch {
+        const userSessions = inMemoryUgcSessions.get(user.id) || [];
+        sessionData = userSessions.find(s => s.id === id);
+      }
+      
+      res.json({
+        // Use real-time progress from stitching callback
+        progress: activeProgress.progress,
+        status: activeProgress.stage === 'complete' ? 'completed' : 
+                activeProgress.stage === 'error' ? 'failed' : 'generating',
+        videoUrl: sessionData?.video_url || sessionData?.videoUrl,
+        stitchedVideos: sessionData?.stitched_videos || sessionData?.stitchedVideos,
+        stage: activeProgress.stage,
+        message: activeProgress.message
+      });
+      return;
+    }
+    
+    // No active progress - get from DB/in-memory
     try {
       const sessions = await prisma.$queryRaw`
-        SELECT video_progress, status, video_url FROM ugc_sessions 
+        SELECT video_progress, status, video_url, stitched_videos FROM ugc_sessions 
         WHERE id = ${id} AND user_id = ${user.id}
       ` as any[];
 
@@ -1308,9 +1359,7 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
           progress: sessions[0].video_progress,
           status: sessions[0].status,
           videoUrl: sessions[0].video_url,
-          // Include detailed stage info if available
-          stage: activeProgress?.stage,
-          message: activeProgress?.message
+          stitchedVideos: sessions[0].stitched_videos
         });
         return;
       }
@@ -1322,8 +1371,7 @@ router.get('/sessions/:id/progress', isAuthenticated, async (req, res) => {
           progress: session.videoProgress,
           status: session.status,
           videoUrl: session.videoUrl,
-          stage: activeProgress?.stage,
-          message: activeProgress?.message
+          stitchedVideos: session.stitchedVideos
         });
         return;
       }
