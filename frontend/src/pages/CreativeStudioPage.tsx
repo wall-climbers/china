@@ -5,7 +5,7 @@ import axios from 'axios';
 import { 
   ArrowLeft, ArrowRight, Check, Loader, Users, Image, Film, 
   Wand2, GripVertical, Play, Download, RefreshCw, Plus, Clock, 
-  AlertTriangle, X, FileText
+  AlertTriangle, X, FileText, Edit2, Save, Filter, Search, ArrowUpDown
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -93,6 +93,7 @@ const TRANSITION_OPTIONS = [
 interface UgcSession {
   id: string;
   productId: string;
+  title?: string;
   targetDemographic: any;
   productPrompt: string;
   characterPrompt: string;
@@ -130,6 +131,16 @@ const CreativeStudioPage = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  
+  // Edit title state
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editTitleValue, setEditTitleValue] = useState('');
+  
+  // Filter and sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'title' | 'status' | 'time'>('time');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
   // Confirmation modal for going back
   const [showBackConfirm, setShowBackConfirm] = useState(false);
@@ -1100,6 +1111,83 @@ const CreativeStudioPage = () => {
     }
   };
 
+  const handleEditTitle = (sessionId: string, currentTitle: string) => {
+    setEditingTitleId(sessionId);
+    setEditTitleValue(currentTitle || 'New Session');
+  };
+
+  const handleSaveTitle = async (sessionId: string) => {
+    try {
+      await axios.patch(
+        `/api/ugc/sessions/${sessionId}/title`,
+        { title: editTitleValue },
+        { withCredentials: true }
+      );
+
+      // Update local state
+      setAllSessions(allSessions.map(s => 
+        s.id === sessionId ? { ...s, title: editTitleValue } : s
+      ));
+
+      if (session?.id === sessionId) {
+        setSession({ ...session, title: editTitleValue });
+      }
+
+      setEditingTitleId(null);
+      toast.success('Title updated successfully');
+    } catch (error) {
+      console.error('Error updating title:', error);
+      toast.error('Failed to update title');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTitleId(null);
+    setEditTitleValue('');
+  };
+
+  const getSessionDisplayTitle = (session: UgcSession) => {
+    if (session.title && session.title !== 'New Session') {
+      return session.title;
+    }
+    if (session.targetDemographic) {
+      return `${session.targetDemographic.ageGroup} • ${session.targetDemographic.gender} • ${session.targetDemographic.tone}`;
+    }
+    return 'New Session';
+  };
+
+  const getFilteredAndSortedSessions = () => {
+    let filtered = allSessions.filter(s => {
+      // Filter by search query
+      const matchesSearch = searchQuery === '' || 
+        getSessionDisplayTitle(s).toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Filter by status
+      const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+
+    // Sort
+    filtered.sort((a, b) => {
+      let comparison = 0;
+
+      if (sortBy === 'title') {
+        comparison = getSessionDisplayTitle(a).localeCompare(getSessionDisplayTitle(b));
+      } else if (sortBy === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      } else if (sortBy === 'time') {
+        const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+        const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+        comparison = dateA - dateB;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return filtered;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -1155,43 +1243,156 @@ const CreativeStudioPage = () => {
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                {allSessions.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => loadSessionData(s)}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-xl transition-all text-left border border-gray-200"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                        {s.status === 'completed' ? (
-                          <Check className="h-6 w-6 text-green-600" />
-                        ) : (
-                          <Wand2 className="h-6 w-6 text-purple-600" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-gray-900 font-medium">
-                            {s.targetDemographic 
-                              ? `${s.targetDemographic.ageGroup} • ${s.targetDemographic.gender} • ${s.targetDemographic.tone}`
-                              : 'New Session'
-                            }
-                          </span>
-                          {getStatusBadge(s.status)}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                          <Clock className="h-3 w-3" />
-                          {formatDate(s.updatedAt || s.createdAt)}
-                          <span className="text-gray-400">•</span>
-                          <span>Step {s.currentStep + 1} of {STEPS.length}</span>
-                        </div>
-                      </div>
+              <>
+                {/* Search and Filter Controls */}
+                <div className="mb-6 space-y-4">
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search sessions by title..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Filter and Sort Controls */}
+                  <div className="flex flex-wrap gap-3">
+                    {/* Status Filter */}
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-gray-600" />
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value="all">All Status</option>
+                        <option value="draft">Draft</option>
+                        <option value="generating">In Progress</option>
+                        <option value="completed">Completed</option>
+                      </select>
                     </div>
-                    <ArrowRight className="h-5 w-5 text-gray-400" />
-                  </button>
-                ))}
-              </div>
+
+                    {/* Sort By */}
+                    <div className="flex items-center gap-2">
+                      <ArrowUpDown className="h-4 w-4 text-gray-600" />
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as 'title' | 'status' | 'time')}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value="time">Sort by Time</option>
+                        <option value="title">Sort by Title</option>
+                        <option value="status">Sort by Status</option>
+                      </select>
+                    </div>
+
+                    {/* Sort Order */}
+                    <button
+                      onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                    >
+                      {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sessions List */}
+                <div className="space-y-3">
+                  {getFilteredAndSortedSessions().length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600">No sessions match your filters</p>
+                    </div>
+                  ) : (
+                    getFilteredAndSortedSessions().map((s) => (
+                      <div
+                        key={s.id}
+                        className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200"
+                      >
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            {s.status === 'completed' ? (
+                              <Check className="h-6 w-6 text-green-600" />
+                            ) : (
+                              <Wand2 className="h-6 w-6 text-purple-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {editingTitleId === s.id ? (
+                              <div className="flex items-center gap-2 mb-2">
+                                <input
+                                  type="text"
+                                  value={editTitleValue}
+                                  onChange={(e) => setEditTitleValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveTitle(s.id);
+                                    if (e.key === 'Escape') handleCancelEdit();
+                                  }}
+                                  className="flex-1 px-3 py-1.5 border border-purple-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSaveTitle(s.id);
+                                  }}
+                                  className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                >
+                                  <Save className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancelEdit();
+                                  }}
+                                  className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => loadSessionData(s)}
+                                  className="text-gray-900 font-medium hover:text-purple-600 transition-colors text-left truncate"
+                                >
+                                  {getSessionDisplayTitle(s)}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditTitle(s.id, getSessionDisplayTitle(s));
+                                  }}
+                                  className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors flex-shrink-0"
+                                  title="Edit title"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                {getStatusBadge(s.status)}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                              <Clock className="h-3 w-3" />
+                              {formatDate(s.updatedAt || s.createdAt)}
+                              <span className="text-gray-400">•</span>
+                              <span>Step {s.currentStep + 1} of {STEPS.length}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => loadSessionData(s)}
+                          className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors flex-shrink-0"
+                        >
+                          <ArrowRight className="h-5 w-5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>

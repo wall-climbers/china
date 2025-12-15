@@ -92,6 +92,7 @@ model UgcSession {
   id                String   @id @default(uuid())
   userId            String   @map("user_id")
   productId         String   @map("product_id")
+  title             String?  @default("New Session")
   
   // Step 0: Demographics & Prompts
   targetDemographic Json?    @map("target_demographic")

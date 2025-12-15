@@ -34,8 +34,8 @@ router.post('/sessions', isAuthenticated, async (req, res) => {
 
   try {
     const session = await prisma.$queryRaw`
-      INSERT INTO ugc_sessions (id, user_id, product_id, current_step, status, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${user.id}, ${productId}, 0, 'draft', NOW(), NOW())
+      INSERT INTO ugc_sessions (id, user_id, product_id, title, current_step, status, created_at, updated_at)
+      VALUES (gen_random_uuid(), ${user.id}, ${productId}, 'New Session', 0, 'draft', NOW(), NOW())
       RETURNING *
     ` as any[];
 
@@ -47,6 +47,7 @@ router.post('/sessions', isAuthenticated, async (req, res) => {
       id: `ugc_${Date.now()}`,
       userId: user.id,
       productId,
+      title: 'New Session',
       targetDemographic: null,
       productPrompt: null,
       characterPrompt: null,
@@ -111,6 +112,40 @@ router.get('/sessions/:id', isAuthenticated, async (req, res) => {
     }
     
     res.json({ session });
+  }
+});
+
+// Update session title
+router.patch('/sessions/:id/title', isAuthenticated, async (req, res) => {
+  const { id } = req.params;
+  const { title } = req.body;
+  const user = req.user as any;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+
+  try {
+    await prisma.$executeRaw`
+      UPDATE ugc_sessions 
+      SET title = ${title}, updated_at = NOW()
+      WHERE id = ${id} AND user_id = ${user.id}
+    `;
+
+    res.json({ success: true });
+  } catch (error) {
+    console.log('⚠️  Database unavailable, using in-memory storage');
+    
+    const userSessions = inMemoryUgcSessions.get(user.id) || [];
+    const sessionIndex = userSessions.findIndex(s => s.id === id);
+    
+    if (sessionIndex !== -1) {
+      userSessions[sessionIndex].title = title;
+      userSessions[sessionIndex].updatedAt = new Date();
+      inMemoryUgcSessions.set(user.id, userSessions);
+    }
+
+    res.json({ success: true });
   }
 });
 

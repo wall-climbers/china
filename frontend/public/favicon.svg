@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="32" cy="32" r="32" fill="url(#gradient)"/>
+  
+  <!-- Shopping Bag -->
+  <path d="M 20 24 L 20 52 Q 20 54 22 54 L 42 54 Q 44 54 44 52 L 44 24 Z" 
+        fill="white" stroke="white" stroke-width="2"/>
+  
+  <!-- Bag Handle -->
+  <path d="M 26 24 Q 26 16 32 16 Q 38 16 38 24" 
+        fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  
+  <!-- Sparkle/Star (AI element) -->
+  <circle cx="48" cy="18" r="8" fill="#fbbf24"/>
+  <path d="M 48 12 L 48 24 M 42 18 L 54 18 M 44 14 L 52 22 M 44 22 L 52 14" 
+        stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
+
