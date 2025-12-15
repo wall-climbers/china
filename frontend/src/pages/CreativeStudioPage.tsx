@@ -163,8 +163,48 @@ const CreativeStudioPage = () => {
     ageGroup: '25-34',
     gender: 'All',
     interests: ['Technology', 'Lifestyle'],
-    tone: 'Casual'
+    tone: 'Casual',
+    countries: [] as string[]
   });
+  
+  // Country typeahead state
+  const [countrySearch, setCountrySearch] = useState('');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  
+  // Comprehensive list of countries
+  const allCountries = [
+    'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan',
+    'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan', 'Bolivia',
+    'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei', 'Bulgaria', 'Burkina Faso', 'Burundi',
+    'Cambodia', 'Cameroon', 'Canada', 'Central African Republic', 'Chad', 'Chile', 'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic',
+    'Denmark', 'Djibouti', 'Dominican Republic',
+    'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia',
+    'Fiji', 'Finland', 'France',
+    'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala', 'Guinea', 'Guyana',
+    'Haiti', 'Honduras', 'Hungary',
+    'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Ivory Coast',
+    'Jamaica', 'Japan', 'Jordan',
+    'Kazakhstan', 'Kenya', 'Kuwait', 'Kyrgyzstan',
+    'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg',
+    'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta', 'Mauritania', 'Mauritius', 'Mexico', 'Moldova', 'Monaco', 'Mongolia', 'Montenegro', 'Morocco', 'Mozambique', 'Myanmar',
+    'Namibia', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway',
+    'Oman',
+    'Pakistan', 'Palestine', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal',
+    'Qatar',
+    'Romania', 'Russia', 'Rwanda',
+    'Saudi Arabia', 'Senegal', 'Serbia', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria',
+    'Taiwan', 'Tajikistan', 'Tanzania', 'Thailand', 'Togo', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan',
+    'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan',
+    'Venezuela', 'Vietnam',
+    'Yemen',
+    'Zambia', 'Zimbabwe'
+  ];
+  
+  const filteredCountries = allCountries.filter(
+    country => 
+      country.toLowerCase().includes(countrySearch.toLowerCase()) &&
+      !demographics.countries.includes(country)
+  );
   const [demographicOptions, setDemographicOptions] = useState<any>(null);
   
   // Step 1: Characters
@@ -543,8 +583,11 @@ const CreativeStudioPage = () => {
         ageGroup: '25-34',
         gender: 'All',
         interests: ['Technology', 'Lifestyle'],
-        tone: 'Casual'
+        tone: 'Casual',
+        countries: []
       });
+      setCountrySearch('');
+      setShowCountryDropdown(false);
       setShowSessionPicker(false);
       setSearchParams({ session: newSession.id });
       toast.success('New creative session started!');
@@ -1542,6 +1585,50 @@ const CreativeStudioPage = () => {
             )}
           </div>
         </div>
+
+        {/* Delete Confirmation Modal - for session picker view */}
+        {showDeleteConfirm && sessionToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertTriangle className="h-6 w-6" />
+                <h3 className="text-lg font-semibold text-gray-900">Delete Session?</h3>
+              </div>
+              <p className="text-gray-700 mb-4">
+                Are you sure you want to delete <span className="text-gray-900 font-medium">"{getSessionDisplayTitle(sessionToDelete)}"</span>?
+              </p>
+              <p className="text-sm text-gray-600 mb-6">
+                This action cannot be undone. All generated content including videos will be permanently deleted.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDeleteCancel}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={isDeleting}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1796,6 +1883,95 @@ const CreativeStudioPage = () => {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Target Countries */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Countries</label>
+                  
+                  {/* Selected Countries Tags */}
+                  {demographics.countries.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {demographics.countries.map((country) => (
+                        <span
+                          key={country}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-full text-sm font-medium"
+                        >
+                          {country}
+                          <button
+                            onClick={() => {
+                              setDemographics({
+                                ...demographics,
+                                countries: demographics.countries.filter(c => c !== country)
+                              });
+                            }}
+                            className="hover:bg-purple-200 rounded-full p-0.5 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Typeahead Input */}
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={countrySearch}
+                        onChange={(e) => {
+                          setCountrySearch(e.target.value);
+                          setShowCountryDropdown(true);
+                        }}
+                        onFocus={() => setShowCountryDropdown(true)}
+                        placeholder="Search and select countries..."
+                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all text-sm"
+                      />
+                    </div>
+                    
+                    {/* Dropdown */}
+                    {showCountryDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {filteredCountries.length > 0 ? (
+                          filteredCountries.slice(0, 10).map((country) => (
+                            <button
+                              key={country}
+                              onClick={() => {
+                                setDemographics({
+                                  ...demographics,
+                                  countries: [...demographics.countries, country]
+                                });
+                                setCountrySearch('');
+                                setShowCountryDropdown(false);
+                              }}
+                              className="w-full px-4 py-2.5 text-left text-sm hover:bg-purple-50 hover:text-purple-700 transition-colors border-b border-gray-100 last:border-b-0"
+                            >
+                              {country}
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-3 text-sm text-gray-500">
+                            {countrySearch ? 'No countries found' : 'Type to search countries'}
+                          </div>
+                        )}
+                        {filteredCountries.length > 10 && (
+                          <div className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t">
+                            Showing 10 of {filteredCountries.length} results. Type more to narrow down.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Click outside to close */}
+                  {showCountryDropdown && (
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowCountryDropdown(false)}
+                    />
+                  )}
                 </div>
               </div>
 
