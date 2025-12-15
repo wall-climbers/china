@@ -4,6 +4,7 @@ import prisma from '../lib/prisma';
 import { llmService } from '../services/llm';
 import { uploadImageToS3, deleteFromS3 } from '../services/s3';
 import { videoStitcherService, SceneVideo, StitchProgress } from '../services/video-stitcher';
+import { inMemoryProducts } from '../lib/inMemoryStorage';
 
 const router = express.Router();
 
@@ -77,15 +78,34 @@ router.post('/sessions', isAuthenticated, async (req, res) => {
 router.get('/sessions', isAuthenticated, async (req, res) => {
   const user = req.user as any;
 
+  console.log('📋 [Get Sessions] Fetching sessions for user:', user.id);
+
+  let dbSessions: any[] = [];
+  let usedInMemory = false;
+
   try {
-    const sessions = await prisma.$queryRaw`
+    dbSessions = await prisma.$queryRaw`
       SELECT * FROM ugc_sessions WHERE user_id = ${user.id} ORDER BY created_at DESC
-    `;
-    res.json({ sessions });
+    ` as any[];
+    console.log(dbSessions);
+    console.log('   Found', dbSessions.length, 'sessions in database');
   } catch (error) {
-    const sessions = inMemoryUgcSessions.get(user.id) || [];
-    res.json({ sessions });
+    console.log('   Database query failed:', error);
+    usedInMemory = true;
   }
+
+  // Also check in-memory storage and merge
+  const inMemorySessions = inMemoryUgcSessions.get(user.id) || [];
+  console.log('   Found', inMemorySessions.length, 'sessions in memory');
+
+  // Merge sessions: DB sessions + in-memory sessions not in DB
+  const dbSessionIds = new Set(dbSessions.map(s => s.id));
+  const uniqueInMemorySessions = inMemorySessions.filter(s => !dbSessionIds.has(s.id));
+  
+  const allSessions = [...dbSessions, ...uniqueInMemorySessions];
+  console.log('   Total merged sessions:', allSessions.length);
+
+  res.json({ sessions: allSessions });
 });
 
 // Get a specific UGC session
@@ -93,26 +113,38 @@ router.get('/sessions/:id', isAuthenticated, async (req, res) => {
   const { id } = req.params;
   const user = req.user as any;
 
+  console.log('🔍 [Get Session] Looking for session:', id);
+  console.log('   User ID:', user.id);
+
+  let session: any = null;
+
+  // Try database first
   try {
     const sessions = await prisma.$queryRaw`
       SELECT * FROM ugc_sessions WHERE id = ${id} AND user_id = ${user.id}
     ` as any[];
-
-    if (!sessions.length) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    res.json({ session: sessions[0] });
+    session = sessions[0];
+    console.log('   Session from DB:', session ? 'found' : 'not found');
   } catch (error) {
-    const userSessions = inMemoryUgcSessions.get(user.id) || [];
-    const session = userSessions.find(s => s.id === id);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    
-    res.json({ session });
+    console.log('   Database query failed:', error);
   }
+
+  // If not in DB, try in-memory
+  if (!session) {
+    console.log('   Trying in-memory storage...');
+    const userSessions = inMemoryUgcSessions.get(user.id) || [];
+    console.log('   User has', userSessions.length, 'sessions in memory');
+    session = userSessions.find(s => s.id === id);
+    console.log('   Session from memory:', session ? 'found' : 'not found');
+  }
+
+  if (!session) {
+    console.log('❌ [Get Session] Session not found anywhere');
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  console.log('✅ [Get Session] Returning session');
+  res.json({ session });
 });
 
 // Update session title
@@ -238,33 +270,61 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
   const { targetDemographic } = req.body;
   const user = req.user as any;
 
+  console.log('📝 [Demographics] Request received');
+  console.log('   Session ID:', id);
+  console.log('   User ID:', user?.id);
+  console.log('   Target Demographic:', JSON.stringify(targetDemographic, null, 2));
+
+  // Ensure countries field exists (for backward compatibility)
+  const normalizedDemographic = {
+    ...targetDemographic,
+    countries: targetDemographic?.countries || []
+  };
+  console.log('   Normalized Demographic:', JSON.stringify(normalizedDemographic, null, 2));
+
   try {
     // Get product info for prompt generation
-    const products = await prisma.product.findMany({
-      where: { userId: user.id }
-    });
+    console.log('📦 [Demographics] Fetching products for user...');
+    let products: any[] = [];
+    try {
+      products = await prisma.product.findMany({
+        where: { userId: user.id }
+      });
+      console.log('   Found', products.length, 'products from database');
+    } catch (dbError) {
+      console.log('   Database unavailable, fetching products from memory');
+      products = inMemoryProducts.get(user.id) || [];
+      console.log('   Found', products.length, 'products from memory');
+    }
 
     // Find the session to get productId
     let productId: string;
     try {
+      console.log('🔍 [Demographics] Looking up session in database...');
       const sessions = await prisma.$queryRaw`
         SELECT product_id FROM ugc_sessions WHERE id = ${id}
       ` as any[];
       productId = sessions[0]?.product_id;
-    } catch {
+      console.log('   Found productId from DB:', productId);
+    } catch (dbError) {
+      console.log('   DB lookup failed, trying in-memory');
       const userSessions = inMemoryUgcSessions.get(user.id) || [];
       const session = userSessions.find(s => s.id === id);
       productId = session?.productId;
+      console.log('   Found productId from memory:', productId);
     }
 
-    const product = products.find(p => p.id === productId);
+    const product = products.find((p: any) => p.id === productId);
+    console.log('   Product found:', product ? product.title : 'NOT FOUND');
     
     if (!product) {
+      console.log('❌ [Demographics] Product not found, returning 404');
       return res.status(404).json({ error: 'Product not found' });
     }
 
     // Generate prompts using LLM (Gemini)
-    console.log('🤖 Generating creative prompts with Gemini LLM...');
+    console.log('🤖 [Demographics] Generating creative prompts with Gemini LLM...');
+    console.log('   Product:', { title: product.title, description: product.description?.substring(0, 50), price: product.price });
     
     const { productPrompt, productBreakdown, characterPrompt, scenes, videoAdOutput } = await llmService.generateProductPrompt(
       {
@@ -272,16 +332,20 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
         description: product.description,
         price: product.price
       },
-      targetDemographic
+      normalizedDemographic
     );
     
-    console.log('✅ LLM prompts generated successfully');
+    console.log('✅ [Demographics] LLM prompts generated successfully');
+    console.log('   productPrompt length:', productPrompt?.length);
+    console.log('   characterPrompt length:', characterPrompt?.length);
+    console.log('   scenes count:', scenes?.length);
 
     // Update session
     try {
+      console.log('💾 [Demographics] Saving to database...');
       await prisma.$executeRaw`
         UPDATE ugc_sessions 
-        SET target_demographic = ${JSON.stringify(targetDemographic)}::jsonb,
+        SET target_demographic = ${JSON.stringify(normalizedDemographic)}::jsonb,
             product_prompt = ${productPrompt},
             character_prompt = ${characterPrompt},
             scenes = ${JSON.stringify(scenes)}::jsonb,
@@ -289,13 +353,15 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
             updated_at = NOW()
         WHERE id = ${id} AND user_id = ${user.id}
       `;
-    } catch {
+      console.log('   Database save successful');
+    } catch (saveError) {
+      console.log('   Database save failed, using in-memory:', saveError);
       const userSessions = inMemoryUgcSessions.get(user.id) || [];
       const sessionIndex = userSessions.findIndex(s => s.id === id);
       if (sessionIndex !== -1) {
         userSessions[sessionIndex] = {
           ...userSessions[sessionIndex],
-          targetDemographic,
+          targetDemographic: normalizedDemographic,
           productPrompt,
           productBreakdown,
           characterPrompt,
@@ -305,9 +371,11 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
           updatedAt: new Date()
         };
         inMemoryUgcSessions.set(user.id, userSessions);
+        console.log('   In-memory save successful');
       }
     }
 
+    console.log('✅ [Demographics] Sending success response');
     res.json({
       success: true,
       productPrompt,
@@ -317,7 +385,10 @@ router.put('/sessions/:id/demographics', isAuthenticated, async (req, res) => {
       videoAdOutput
     });
   } catch (error) {
-    console.error('Error updating demographics:', error);
+    console.error('❌ [Demographics] Error updating demographics:', error);
+    console.error('   Error name:', (error as Error).name);
+    console.error('   Error message:', (error as Error).message);
+    console.error('   Error stack:', (error as Error).stack);
     res.status(500).json({ error: 'Failed to update demographics' });
   }
 });

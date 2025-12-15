@@ -467,17 +467,23 @@ Requirements:
    */
   async generateProductBreakdown(
     product: { title: string; description: string; price: number },
-    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string }
+    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string; countries?: string[] }
   ): Promise<string> {
+    console.log('📊 [LLM] generateProductBreakdown called');
+    console.log('   Demographic received:', JSON.stringify(demographic));
+    
     const systemPrompt = `You are an expert e-commerce product analyst. Take the following product details and break them down into a structured analysis for creating video ads. Focus on extracting key elements that can be used to craft compelling ads.`;
 
+    const interestsStr = demographic?.interests?.join(', ') || 'general';
+    const countriesStr = demographic?.countries?.length ? `, targeting ${demographic.countries.join(', ')}` : '';
+    
     const userPrompt = `Product Name: ${product.title}
 
 Description: ${product.description}
 
 Price: $${product.price}
 
-Target Audience Hints: ${demographic.ageGroup} ${demographic.gender !== 'All' ? demographic.gender : ''}, interested in ${demographic.interests.join(', ')}
+Target Audience Hints: ${demographic?.ageGroup || 'All ages'} ${demographic?.gender !== 'All' ? demographic?.gender : ''}, interested in ${interestsStr}${countriesStr}
 
 Output in this exact format:
 - **Key Features**: Bullet list of 5-7 main features.
@@ -490,11 +496,16 @@ Output in this exact format:
 
 Keep the response concise, factual, and ad-focused.`;
 
+    console.log('   User prompt preview:', userPrompt.substring(0, 200) + '...');
+
     try {
+      console.log('   Calling LLM generateText...');
       const responseText = await this.generateText(userPrompt, systemPrompt);
+      console.log('   LLM response received, length:', responseText?.length);
       return responseText.trim();
     } catch (error) {
-      console.error('❌ Failed to generate product breakdown:', error);
+      console.error('❌ [LLM] Failed to generate product breakdown:', error);
+      console.error('   Error details:', (error as Error).message);
       return '';
     }
   }
@@ -504,7 +515,7 @@ Keep the response concise, factual, and ad-focused.`;
    */
   async generateProductPrompt(
     product: { title: string; description: string; price: number },
-    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string }
+    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string; countries?: string[] }
   ): Promise<{
     productPrompt: string;
     productBreakdown: string;
@@ -512,10 +523,16 @@ Keep the response concise, factual, and ad-focused.`;
     scenes: Array<{ id: number; title: string; prompt: string; dialogue: string; motion: string; transitions: string; duration: number }>;
     videoAdOutput: VideoAdOutput | null;
   }> {
+    console.log('🎬 [LLM] generateProductPrompt called');
+    console.log('   Product:', JSON.stringify(product));
+    console.log('   Demographic:', JSON.stringify(demographic));
+    console.log('   Demographic.countries:', demographic?.countries);
+    console.log('   Demographic.interests:', demographic?.interests);
+    
     // First, generate the product breakdown
-    console.log('📊 Generating product breakdown analysis...');
+    console.log('📊 [LLM] Generating product breakdown analysis...');
     const productBreakdown = await this.generateProductBreakdown(product, demographic);
-    console.log('✅ Product breakdown complete');
+    console.log('✅ [LLM] Product breakdown complete, length:', productBreakdown?.length);
 
     // Now generate the complete video ad production plan
     const systemPrompt = `You are a creative video ad automation expert. Using the product breakdown below, automatically generate a customer avatar, a complete 30-60 second video ad script, ready-to-use prompts for generating consistent, hyper-realistic scenes in Google Nano Banana (Gemini image editor), and a detailed breakdown of how these scenes, along with dialogue and motion, should be assembled into a compelling video ad. The scenes should map directly to the script sections for a cohesive ad, the human faces should look as authentic and lifelike as possible, and the primary subject in all generated images should be positioned so they are not too close, allowing for a 9:16 crop later without losing key details.
@@ -531,10 +548,11 @@ PRODUCT BREAKDOWN:
 ${productBreakdown}
 
 TARGET AUDIENCE:
-- Age Group: ${demographic.ageGroup}
-- Gender: ${demographic.gender}
-- Interests: ${demographic.interests.join(', ')}
-- Content Tone: ${demographic.tone}
+- Age Group: ${demographic?.ageGroup || 'All ages'}
+- Gender: ${demographic?.gender || 'All'}
+- Interests: ${demographic?.interests?.join(', ') || 'General'}
+- Content Tone: ${demographic?.tone || 'Casual'}
+- Target Countries: ${demographic?.countries?.length ? demographic.countries.join(', ') : 'Global'}
 
 Output in this exact JSON format:
 {
@@ -649,7 +667,7 @@ Respond ONLY with the JSON object.`;
    */
   private generateFallbackPrompts(
     product: { title: string; description: string; price: number },
-    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string },
+    demographic: { ageGroup: string; gender: string; interests: string[]; tone: string; countries?: string[] },
     productBreakdown: string
   ): {
     productPrompt: string;

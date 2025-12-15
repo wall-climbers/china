@@ -429,8 +429,40 @@ const CreativeStudioPage = () => {
       const sessionId = searchParams.get('session');
       
       if (sessionId) {
-        // Load specific session
-        const targetSession = productSessions.find((s: UgcSession) => s.id === sessionId);
+        // First try to find in filtered sessions
+        let targetSession = productSessions.find((s: UgcSession) => s.id === sessionId);
+        
+        // If not found, try to fetch directly from API
+        if (!targetSession) {
+          console.log('Session not in filtered list, fetching directly...');
+          console.log('Looking for session:', sessionId);
+          console.log('Product ID from URL:', productId);
+          console.log('Available sessions:', productSessions.map((s: UgcSession) => ({ id: s.id, productId: s.productId })));
+          
+          try {
+            const directResponse = await axios.get(`/api/ugc/sessions/${sessionId}`, { withCredentials: true });
+            if (directResponse.data.session) {
+              const fetchedSession = normalizeSession(directResponse.data.session);
+              console.log('Fetched session productId:', fetchedSession.productId);
+              
+              // Check if it matches the current product
+              if (fetchedSession.productId === productId) {
+                targetSession = fetchedSession;
+                // Add to sessions list
+                setAllSessions([...productSessions, fetchedSession]);
+              } else {
+                console.log('Session belongs to different product, redirecting...');
+                // Optionally redirect to correct product
+                toast.error(`This session belongs to a different product`);
+                setShowSessionPicker(true);
+                return;
+              }
+            }
+          } catch (fetchError) {
+            console.error('Failed to fetch session directly:', fetchError);
+          }
+        }
+        
         if (targetSession) {
           loadSessionData(targetSession);
         } else {
@@ -516,7 +548,12 @@ const CreativeStudioPage = () => {
     if (normalized.selectedCharacter) setSelectedCharacter(normalized.selectedCharacter);
     if (normalized.generatedProductImages?.length > 0) setProductImages(normalized.generatedProductImages);
     if (normalized.selectedProductImage) setSelectedProductImage(normalized.selectedProductImage);
-    if (normalized.targetDemographic) setDemographics(normalized.targetDemographic);
+    if (normalized.targetDemographic) {
+      setDemographics({
+        ...normalized.targetDemographic,
+        countries: normalized.targetDemographic.countries || []
+      });
+    }
     if (normalized.productPrompt) setProductPrompt(normalized.productPrompt);
     
     // Handle additional fields that may not be in the interface
