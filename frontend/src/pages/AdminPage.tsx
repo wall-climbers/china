@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BarChart3, Cpu, Image, Video, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import api from '../config/axios';
 import toast from 'react-hot-toast';
+import Navbar from '../components/Navbar';
 
 interface UsageRecord {
   timestamp: string;
@@ -57,82 +58,123 @@ const AdminPage = () => {
   const formatTime = (ts: string) => new Date(ts).toLocaleString();
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-emerald-500"></div>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="flex items-center justify-center h-96">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="bg-gray-900 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/20 rounded-lg"><BarChart3 className="w-6 h-6 text-emerald-400" /></div>
-            <div><h1 className="text-2xl font-bold">Admin Dashboard</h1><p className="text-gray-400 text-sm">LLM Usage Stats</p></div>
+            <div className="p-3 bg-blue-100 rounded-xl">
+              <BarChart3 className="w-8 h-8 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+              <p className="text-gray-600">LLM Usage Statistics</p>
+            </div>
           </div>
-          <button onClick={handleRefresh} disabled={refreshing} className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg">
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />Refresh
-            </button>
+          <button 
+            onClick={handleRefresh} 
+            disabled={refreshing} 
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium disabled:opacity-50 shadow-sm"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Overview */}
-        <div className="grid grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {[
-            { label: 'Total', value: stats?.overview.total, icon: BarChart3, color: 'emerald' },
-            { label: 'Text-to-Text', value: stats?.overview.textToText, icon: Cpu, color: 'blue' },
-            { label: 'Text-to-Image', value: stats?.overview.textToImage, icon: Image, color: 'purple' },
-            { label: 'Text-to-Video', value: stats?.overview.textToVideo, icon: Video, color: 'orange' }
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`p-2 bg-${color}-500/20 rounded-lg`}><Icon className={`w-5 h-5 text-${color}-400`} /></div>
-                <span className="text-gray-400 text-sm">{label}</span>
+            { label: 'Total Requests', value: stats?.overview.total, icon: BarChart3, color: 'blue', bgColor: 'bg-blue-100', textColor: 'text-blue-600' },
+            { label: 'Text-to-Text', value: stats?.overview.textToText, icon: Cpu, color: 'blue', bgColor: 'bg-blue-100', textColor: 'text-blue-600' },
+            { label: 'Text-to-Image', value: stats?.overview.textToImage, icon: Image, color: 'purple', bgColor: 'bg-purple-100', textColor: 'text-purple-600' },
+            { label: 'Text-to-Video', value: stats?.overview.textToVideo, icon: Video, color: 'orange', bgColor: 'bg-orange-100', textColor: 'text-orange-600' }
+          ].map(({ label, value, icon: Icon, color, bgColor, textColor }) => (
+            <div key={label} className="bg-white rounded-lg p-6 shadow-md hover:shadow-lg transition-all">
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`p-2.5 ${bgColor} rounded-lg`}>
+                  <Icon className={`w-5 h-5 ${textColor}`} />
+                </div>
+                <span className="text-gray-700 text-sm font-medium">{label}</span>
               </div>
-              <div className={`text-3xl font-bold text-${color}-400`}>{value || 0}</div>
+              <div className={`text-3xl font-bold ${textColor}`}>{value || 0}</div>
             </div>
           ))}
         </div>
 
         {/* Breakdown & Performance */}
-        <div className="grid grid-cols-2 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <h3 className="text-lg font-semibold mb-6">Usage Breakdown</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="bg-white rounded-lg p-6 shadow-md">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6">Usage Breakdown</h3>
             {stats?.breakdown.map((item) => (
-              <div key={item.type} className="mb-4">
+              <div key={item.type} className="mb-5 last:mb-0">
                 <div className="flex justify-between mb-2">
-                  <span className="text-gray-300">{item.type}</span>
-                  <span className="text-gray-400">{item.count} ({item.percentage}%)</span>
+                  <span className="text-gray-800 font-medium">{item.type}</span>
+                  <span className="text-gray-600 text-sm font-medium">{item.count} ({item.percentage}%)</span>
                 </div>
-                <div className="w-full bg-gray-800 rounded-full h-2">
-                  <div className={`h-2 rounded-full ${item.type.includes('Text') ? 'bg-blue-500' : item.type.includes('Image') ? 'bg-purple-500' : 'bg-orange-500'}`} style={{ width: `${item.percentage}%` }} />
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className={`h-2.5 rounded-full transition-all ${
+                      item.type.includes('Text') ? 'bg-blue-600' : 
+                      item.type.includes('Image') ? 'bg-purple-600' : 
+                      'bg-orange-600'
+                    }`} 
+                    style={{ width: `${item.percentage}%` }} 
+                  />
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <h3 className="text-lg font-semibold mb-6">Performance</h3>
+          <div className="bg-white rounded-lg p-6 shadow-md">
+            <h3 className="text-xl font-semibold text-gray-900 mb-6">Performance Metrics</h3>
             <div className="mb-6">
               <div className="flex justify-between mb-2">
-                <span className="text-gray-400">Success Rate</span>
-                <span className={`font-semibold ${(stats?.successRate.rate||0)>=90?'text-emerald-400':'text-yellow-400'}`}>{stats?.successRate.rate||0}%</span>
+                <span className="text-gray-700 font-medium">Success Rate</span>
+                <span className={`font-bold ${(stats?.successRate.rate||0)>=90?'text-green-600':'text-yellow-600'}`}>
+                  {stats?.successRate.rate||0}%
+                </span>
               </div>
-              <div className="w-full bg-gray-800 rounded-full h-3">
-                <div className="h-3 rounded-full bg-emerald-500" style={{ width: `${stats?.successRate.rate||0}%` }} />
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="h-3 rounded-full bg-green-600 transition-all" 
+                  style={{ width: `${stats?.successRate.rate||0}%` }} 
+                />
               </div>
-              <div className="flex justify-between mt-2 text-sm">
-                <span className="text-emerald-400"><CheckCircle className="w-3 h-3 inline mr-1"/>{stats?.successRate.successful||0}</span>
-                <span className="text-red-400"><XCircle className="w-3 h-3 inline mr-1"/>{stats?.successRate.failed||0}</span>
+              <div className="flex justify-between mt-3 text-sm">
+                <span className="text-green-600 font-medium flex items-center gap-1">
+                  <CheckCircle className="w-4 h-4"/>
+                  {stats?.successRate.successful||0} successful
+                </span>
+                <span className="text-red-600 font-medium flex items-center gap-1">
+                  <XCircle className="w-4 h-4"/>
+                  {stats?.successRate.failed||0} failed
+                </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 mb-4"><Clock className="w-4 h-4 text-gray-400"/><span className="text-gray-400">Avg Response Time</span></div>
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="w-5 h-5 text-gray-600"/>
+              <span className="text-gray-700 font-semibold">Average Response Time</span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              {[['Text-to-Text', stats?.avgResponseTime.textToText, 'blue'],['Text-to-Image', stats?.avgResponseTime.textToImage, 'purple'],['Text-to-Video', stats?.avgResponseTime.textToVideo, 'orange'],['Overall', stats?.avgResponseTime.overall, 'emerald']].map(([label, val, c]) => (
-                <div key={label as string} className="bg-gray-800 rounded-lg p-3">
-                  <div className="text-sm text-gray-400 mb-1">{label as string}</div>
-                  <div className={`text-lg font-semibold text-${c}-400`}>{formatDuration(val as number)}</div>
+              {[
+                ['Text-to-Text', stats?.avgResponseTime.textToText, 'text-blue-600'],
+                ['Text-to-Image', stats?.avgResponseTime.textToImage, 'text-purple-600'],
+                ['Text-to-Video', stats?.avgResponseTime.textToVideo, 'text-orange-600'],
+                ['Overall', stats?.avgResponseTime.overall, 'text-green-600']
+              ].map(([label, val, textClass]) => (
+                <div key={label as string} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                  <div className="text-xs text-gray-600 mb-1 font-medium">{label as string}</div>
+                  <div className={`text-lg font-bold ${textClass}`}>{formatDuration(val as number)}</div>
                 </div>
               ))}
             </div>
@@ -140,27 +182,61 @@ const AdminPage = () => {
         </div>
 
         {/* History */}
-        <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-          <h3 className="text-lg font-semibold mb-6">Recent API Calls</h3>
+        <div className="bg-white rounded-lg p-6 shadow-md">
+          <h3 className="text-xl font-semibold text-gray-900 mb-6">Recent API Calls</h3>
           {stats?.recentHistory?.length ? (
-            <table className="w-full">
-              <thead><tr className="text-left text-gray-400 border-b border-gray-800">
-                <th className="pb-3">Time</th><th className="pb-3">Type</th><th className="pb-3">Model</th><th className="pb-3">Status</th><th className="pb-3">Duration</th>
-              </tr></thead>
-              <tbody>
-                {stats.recentHistory.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                    <td className="py-3 text-sm text-gray-300">{formatTime(r.timestamp)}</td>
-                    <td className="py-3"><span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${r.type==='text-to-text'?'bg-blue-500/20 text-blue-400':r.type==='text-to-image'?'bg-purple-500/20 text-purple-400':'bg-orange-500/20 text-orange-400'}`}>{getTypeIcon(r.type)}{r.type}</span></td>
-                    <td className="py-3 text-sm text-gray-400 font-mono">{r.model}</td>
-                    <td className="py-3">{r.success?<span className="text-emerald-400 text-sm"><CheckCircle className="w-3 h-3 inline mr-1"/>OK</span>:<span className="text-red-400 text-sm"><XCircle className="w-3 h-3 inline mr-1"/>Fail</span>}</td>
-                    <td className="py-3 text-sm text-gray-400">{formatDuration(r.durationMs)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-gray-700 border-b-2 border-gray-200">
+                    <th className="pb-3 font-semibold">Time</th>
+                    <th className="pb-3 font-semibold">Type</th>
+                    <th className="pb-3 font-semibold">Model</th>
+                    <th className="pb-3 font-semibold">Status</th>
+                    <th className="pb-3 font-semibold">Duration</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {stats.recentHistory.map((r, i) => (
+                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                      <td className="py-4 text-sm text-gray-700">{formatTime(r.timestamp)}</td>
+                      <td className="py-4">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          r.type==='text-to-text'
+                            ?'bg-blue-100 text-blue-700'
+                            :r.type==='text-to-image'
+                            ?'bg-purple-100 text-purple-700'
+                            :'bg-orange-100 text-orange-700'
+                        }`}>
+                          {getTypeIcon(r.type)}
+                          {r.type}
+                        </span>
+                      </td>
+                      <td className="py-4 text-sm text-gray-600 font-mono">{r.model}</td>
+                      <td className="py-4">
+                        {r.success ? (
+                          <span className="text-green-600 text-sm font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-4 h-4"/>
+                            Success
+                          </span>
+                        ) : (
+                          <span className="text-red-600 text-sm font-semibold flex items-center gap-1">
+                            <XCircle className="w-4 h-4"/>
+                            Failed
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 text-sm text-gray-700 font-medium">{formatDuration(r.durationMs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <div className="text-center py-12 text-gray-500"><BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50"/><p>No API calls yet</p></div>
+            <div className="text-center py-12 text-gray-500">
+              <BarChart3 className="w-16 h-16 mx-auto mb-4 text-gray-400"/>
+              <p className="text-gray-600">No API calls recorded yet</p>
+            </div>
           )}
         </div>
       </div>
